@@ -57,7 +57,7 @@ metrics:
   address: "127.0.0.1:9000"
 
 allowlist:
-  - "example.com"
+  - "your-domain.com"
   - "*.example.org"
 ```
 
