@@ -1,7 +1,7 @@
 [Unit]
 Description=SNIProxy - High Performance SNI Proxy
 After=network.target
-Documentation=https://github.com/example/sniproxy-rs
+Documentation=https://github.com/samansohani78/SNIProxy-rs
 
 [Service]
 Type=simple

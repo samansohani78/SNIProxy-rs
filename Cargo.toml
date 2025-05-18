@@ -13,7 +13,7 @@ authors = ["Saman Sohani <samansohani78@gmail.com>"]
 edition = "2021"
 license = "MIT"
 description = "A high-performance SNI proxy in Rust"
-repository = "https://github.com/example/sniproxy-rs"
+repository = "https://github.com/samansohani78/SNIProxy-rs"
 
 [workspace.dependencies]
 tokio = { version = "1.28", features = ["full"] }
