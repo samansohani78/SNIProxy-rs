@@ -254,6 +254,6 @@ mod tests {
             0x65, 0x78, 0x61, 0x6D, 0x70, 0x6C, 0x65,
         ]);
 
-        assert_eq!(extract_sni(&record).unwrap(), "example");
+        assert_eq!(extract_sni(assert_eq!(extract_sni(&record).unwrap(), "example");record).unwrap(), "ip.me");
     }
 }

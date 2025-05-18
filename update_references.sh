@@ -2,16 +2,13 @@
 
 # Define replacements
 declare -A replacements=(
-    ["example.com"]="your-domain.com"
-    ["example[[:space:]]proxy"]="SNIProxy-rs"
-    ["https://github.com/example/"]="https://github.com/samansohani78/"
-    ["git@github.com:example/"]="git@github.com:samansohani78/"
-    ["# authors = \\[.*\\]"]="authors = [\"Saman Sohani <samansohani78@gmail.com>\"]"
+    ["ip.me"]="ip.me"
+    ["sniproxy"]="SNIProxy-rs"
+    ["https://github.com/samansohani78/"]="https://github.com/samansohani78/"
+    ["git@github.com:samansohani78/"]="git@github.com:samansohani78/"
+    ["authors = .*"]="authors = [\"Saman Sohani <samansohani78@gmail.com>\"]"
     ["Author:.*"]="Author: Saman Sohani <samansohani78@gmail.com>"
     ["Copyright.*"]="Copyright (c) 2025 Saman Sohani"
-    ["your email"]="samansohani78@gmail.com"
-    ["your username"]="samansohani78"
-    ["your repository"]="SNIProxy-rs"
 )
 
 # Files to process

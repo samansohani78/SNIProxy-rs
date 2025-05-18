@@ -37,7 +37,7 @@ cargo fmt -- --check
 1. Update documentation for new features
 2. Add tests for new functionality
 3. Update the README.md if needed
-4. Ensure CI passes on your PR
+4. Ensure CI passes on the pull request
 
 ## Commit Messages
 
