@@ -10,8 +10,8 @@ NC='\033[0m'
 # Test parameters
 CONFIG_FILE="/etc/sniproxy/config.yaml"
 METRICS_URL="http://localhost:9000/metrics"
-TEST_HTTP_HOST="your-domain.com"
-TEST_HTTPS_HOST="your-domain.com"
+TEST_HTTP_HOST="ip.me"
+TEST_HTTPS_HOST="ip.me"
 TIMEOUT=5
 
 echo -e "${YELLOW}Starting SNIProxy installation test...${NC}"

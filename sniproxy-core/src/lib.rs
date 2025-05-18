@@ -250,7 +250,7 @@ mod tests {
             0x00, 0x0A,                    // SNI list length
             0x00,                          // SNI type (hostname)
             0x00, 0x07,                    // SNI length
-            // "example"
+            // Test domain name
             0x65, 0x78, 0x61, 0x6D, 0x70, 0x6C, 0x65,
         ]);
 

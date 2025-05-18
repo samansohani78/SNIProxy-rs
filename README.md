@@ -31,7 +31,7 @@ Requires Rust 1.70 or newer.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/sniproxy-rs.git
+git clone https://github.com/samansohani78/SNIProxy-rs.git
 cd sniproxy-rs
 
 # Build
@@ -57,8 +57,8 @@ metrics:
   address: "127.0.0.1:9000"
 
 allowlist:
-  - "your-domain.com"
-  - "*.example.org"
+  - "ip.me"
+  - "*.ip.me"
 ```
 
 ## Running
