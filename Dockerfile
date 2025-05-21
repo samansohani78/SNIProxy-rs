@@ -1,12 +1,12 @@
 # Build stage
-FROM rust:1.75-slim-bookworm as builder
+FROM rust:1.87-slim-bookworm AS builder
 
 WORKDIR /usr/src/sniproxy
 COPY . .
 
 # Install build dependencies
-RUN apt-get update && \
-    apt-get install -y pkg-config && \
+RUN apt update && \
+    apt install -y pkg-config && \
     rm -rf /var/lib/apt/lists/*
 
 # Build application
@@ -19,8 +19,8 @@ FROM debian:bookworm-slim
 RUN useradd -m -U -u 1000 -s /bin/false sniproxy
 
 # Install runtime dependencies
-RUN apt-get update && \
-    apt-get install -y ca-certificates && \
+RUN apt update && \
+    apt install -y ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from builder

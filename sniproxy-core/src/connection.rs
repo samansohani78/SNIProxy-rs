@@ -126,8 +126,8 @@ impl ConnectionHandler {
         // Setup metrics if enabled
         let _metrics = self.metrics.as_ref().map(|m| {
             (
-                m.bytes_transferred.with_label_values(&[&host, "tx"]),
-                m.bytes_transferred.with_label_values(&[&host, "rx"])
+                m.bytes_transferred.with_label_values(&[host.as_str(), "tx"]),
+                m.bytes_transferred.with_label_values(&[host.as_str(), "rx"])
             )
         });
 
@@ -194,8 +194,8 @@ impl ConnectionHandler {
         // Setup metrics if enabled
         let metrics = self.metrics.as_ref().map(|m| {
             (
-                m.bytes_transferred.with_label_values(&[&sni, "tx"]),
-                m.bytes_transferred.with_label_values(&[&sni, "rx"])
+                m.bytes_transferred.with_label_values(&[sni.as_str(), "tx"]),
+                m.bytes_transferred.with_label_values(&[sni.as_str(), "rx"])
             )
         });
 
