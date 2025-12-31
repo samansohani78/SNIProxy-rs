@@ -200,7 +200,7 @@ impl ConnectionPool {
             return false;
         }
 
-        let mut pool = self.pools.entry(host.clone()).or_insert(Vec::new());
+        let mut pool = self.pools.entry(host.clone()).or_default();
 
         // Check if pool is full
         if pool.len() >= self.config.max_per_host {
