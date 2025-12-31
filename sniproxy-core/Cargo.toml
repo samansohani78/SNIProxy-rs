@@ -13,3 +13,18 @@ tracing = { workspace = true }
 futures = { workspace = true }
 prometheus = { workspace = true }
 sniproxy-config = { path = "../sniproxy-config" }
+
+[dev-dependencies]
+criterion = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+h2 = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http-body-util = { workspace = true }
+bytes = { workspace = true }
+
+[[bench]]
+name = "sni_parsing"
+harness = false

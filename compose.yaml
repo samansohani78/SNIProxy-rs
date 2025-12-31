@@ -1,0 +1,166 @@
+name: sniproxy
+
+services:
+  # Main SNIProxy service with enhanced privileges
+  sniproxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sniproxy-sniproxy
+    container_name: sniproxy-sniproxy-1
+    # Enhanced container privileges for network binding
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_BIND_SERVICE
+    tty: true
+    stdin_open: true
+    # Enable port mappings for external access
+    # network_mode: "host"
+    ports:
+      - "38080:38080"  # HTTP
+      - "38443:38443"  # HTTPS
+      - "39090:39090"  # Metrics (disabled but keep port mapping for future)
+    volumes:
+      - ./config.yaml:/etc/sniproxy/config.yaml:ro
+      - ./test/http2/certs:/etc/sniproxy/certs:ro  # Mount HTTP/2 certificates
+      - sniproxy-logs:/var/log/sniproxy
+    networks:
+      sniproxy-net:
+        aliases:
+          - sniproxy.test
+    # DNS setup to connect to Docker services
+    extra_hosts:
+      - "http1.test:172.20.0.3"
+      - "http2.test:172.20.0.4"
+      - "websocket.test:172.20.0.5"
+      - "grpc.test:172.20.0.6"
+    depends_on:
+      http1-server:
+        condition: service_healthy
+      http2-server:
+        condition: service_healthy
+      websocket-server:
+        condition: service_healthy
+      grpc-server:
+        condition: service_healthy
+    # Simplified startup command
+    command: |
+      /bin/sh -c '
+      echo "Starting simplified startup..."
+      # Test DNS resolution
+      echo "Testing DNS resolution:"
+      ping -c 1 http1.test
+      # Start SNIProxy
+      echo "Starting SNIProxy with config-based metrics disabled"
+      exec /usr/local/bin/sniproxy-server -c /etc/sniproxy/config.yaml
+      '
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:38080", "-H", "Host: http1.test"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Improved container lifecycle management
+    stop_grace_period: 30s
+    stop_signal: SIGTERM
+    restart: "no"  # Don't restart automatically for testing
+
+  # HTTP/1.1 test server
+  http1-server:
+    image: nginx:1.25-alpine
+    volumes:
+      - ./test/http1/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./test/http1/html:/usr/share/nginx/html:ro
+    networks:
+      sniproxy-net:
+        aliases:
+          - http1.test
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # Install wget for health checks
+    command: sh -c "apk add --no-cache wget && nginx -g 'daemon off;'"
+    environment:
+      - NGINX_HOST=http1.test
+    hostname: http1.test
+
+  # HTTP/2 test server
+  http2-server:
+    image: nginx:1.25-alpine
+    ports:
+      - "443:443"  # Add HTTPS port for HTTP/2
+    volumes:
+      - ./test/http2/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./test/http2/html:/usr/share/nginx/html:ro
+      - ./test/http2/certs:/etc/nginx/certs:ro
+    networks:
+      sniproxy-net:
+        aliases:
+          - http2.test
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    command: sh -c "apk add --no-cache wget && nginx -g 'daemon off;'"
+    environment:
+      - NGINX_HOST=http2.test
+    hostname: http2.test
+
+  # WebSocket server
+  websocket-server:
+    image: nginx:1.25-alpine
+    volumes:
+      - ./test/http1/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./test/http1/html:/usr/share/nginx/html:ro
+    networks:
+      sniproxy-net:
+        aliases:
+          - websocket.test
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    command: sh -c "apk add --no-cache wget && nginx -g 'daemon off;'"
+    environment:
+      - NGINX_HOST=websocket.test
+    hostname: websocket.test
+
+  # gRPC server
+  grpc-server:
+    image: nginx:1.25-alpine
+    volumes:
+      - ./test/http1/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./test/http1/html:/usr/share/nginx/html:ro
+    networks:
+      sniproxy-net:
+        aliases:
+          - grpc.test
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    command: sh -c "apk add --no-cache wget && nginx -g 'daemon off;'"
+    environment:
+      - NGINX_HOST=grpc.test
+    hostname: grpc.test
+
+networks:
+  sniproxy-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  sniproxy-logs:
+
