@@ -17,7 +17,6 @@ Thumbs.db
 debug/
 
 # Config
-config.yaml
 .env
 
 # Test artifacts

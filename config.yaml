@@ -1,0 +1,36 @@
+# SNIProxy Configuration
+# This proxy listens on ports 80 (HTTP) and 443 (HTTPS/TLS)
+# and forwards traffic to the original domain based on Host header or SNI
+
+listen_addrs:
+  - "0.0.0.0:80"      # HTTP traffic (using 8080 for testing, use 80 for production)
+  - "0.0.0.0:443"      # HTTPS/TLS traffic (using 8443 for testing, use 443 for production)
+
+timeouts:
+  connect: 10           # Timeout for connecting to backend (seconds)
+  client_hello: 5       # Timeout for receiving TLS ClientHello or HTTP headers (seconds)
+  idle: 300             # Idle connection timeout (seconds)
+
+metrics:
+  enabled: true
+  address: "127.0.0.1:9090"   # Prometheus metrics endpoint
+
+# Connection management (PHASE 1: Stability improvements)
+max_connections: 100000        # Maximum concurrent connections (prevents file descriptor exhaustion)
+shutdown_timeout: 30          # Graceful shutdown timeout in seconds (wait for active connections)
+
+# Connection pooling (PHASE 3: Performance optimization)
+# NOTE: Limited effectiveness with transparent tunneling architecture
+# Works best for HTTP/1.1 keep-alive scenarios
+connection_pool:
+  enabled: true               # Enable connection pooling (default: true)
+  max_per_host: 1000          # Maximum connections per backend host (default: 100)
+  connection_ttl: 600         # Connection time-to-live in seconds (default: 60)
+  idle_timeout: 300           # Idle timeout in seconds (default: 30)
+  cleanup_interval: 30       # Pool cleanup interval in seconds (default: 10)
+
+# Optional: Restrict to specific domains (comment out to allow all domains)
+# allowlist:
+#   - "example.com"
+#   - "*.sohani.me"
+#   - "api.sohani.me"
