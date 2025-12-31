@@ -120,7 +120,7 @@ impl Config {
     /// ```
     pub fn from_file(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let contents = fs::read_to_string(path)?;
-        let config = serde_yml::from_str(&contents)?;
+        let config = serde_yaml_ng::from_str(&contents)?;
         Ok(config)
     }
 
@@ -153,7 +153,7 @@ impl Config {
     /// assert_eq!(config.listen_addrs[0], "0.0.0.0:443");
     /// ```
     pub fn parse(contents: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let config = serde_yml::from_str(contents)?;
+        let config = serde_yaml_ng::from_str(contents)?;
         Ok(config)
     }
 }
