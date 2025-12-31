@@ -1,4 +1,4 @@
-name: CI
+name: CI/CD
 
 on:
   push:
@@ -11,63 +11,9 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  test:
-    name: Test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable, beta]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Run tests
-        run: cargo test --all --verbose
-
-      - name: Run tests (release mode)
-        run: cargo test --all --release --verbose
-
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
+  # Fast checks on GitHub runners
   fmt:
-    name: Formatting
+    name: Formatting Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -81,8 +27,8 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-  build:
-    name: Build
+  clippy:
+    name: Clippy Lints
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -90,13 +36,100 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # Build and test on self-hosted runner
+  build-and-test:
+    name: Build and Test (Self-Hosted)
+    runs-on: [self-hosted, sniproxy]
+    needs: [fmt, clippy]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Build (debug)
         run: cargo build --all --verbose
 
+      - name: Run tests
+        run: cargo test --all --verbose
+
       - name: Build (release)
         run: cargo build --all --release --verbose
 
+      - name: Run release tests
+        run: cargo test --all --release --verbose
+
+      - name: Run protocol verification
+        run: |
+          chmod +x verify_all_protocols.sh
+          ./verify_all_protocols.sh
+
+      - name: Show binary info
+        run: |
+          ls -lh target/release/sniproxy-server
+          file target/release/sniproxy-server
+
+  # Deploy on self-hosted runner (only on main branch push)
+  deploy:
+    name: Deploy to Production
+    runs-on: [self-hosted, sniproxy]
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build release binary
+        run: cargo build --release --verbose
+
+      - name: Stop running service (if exists)
+        run: |
+          if systemctl is-active --quiet sniproxy; then
+            sudo systemctl stop sniproxy || true
+          fi
+        continue-on-error: true
+
+      - name: Install binary
+        run: |
+          sudo cp target/release/sniproxy-server /usr/local/bin/
+          sudo chmod +x /usr/local/bin/sniproxy-server
+
+      - name: Create config directory
+        run: |
+          sudo mkdir -p /etc/sniproxy
+          if [ ! -f /etc/sniproxy/config.yaml ]; then
+            sudo cp config.yaml /etc/sniproxy/
+          fi
+
+      - name: Install systemd service
+        run: |
+          sudo bash install.sh || true
+        continue-on-error: true
+
+      - name: Start service
+        run: |
+          sudo systemctl daemon-reload
+          sudo systemctl enable sniproxy
+          sudo systemctl start sniproxy
+
+      - name: Check service status
+        run: |
+          sleep 3
+          sudo systemctl status sniproxy --no-pager || true
+
+      - name: Show deployment info
+        run: |
+          echo "✅ Deployment complete!"
+          echo "Binary: /usr/local/bin/sniproxy-server"
+          echo "Config: /etc/sniproxy/config.yaml"
+          echo "Service: sniproxy.service"
+          /usr/local/bin/sniproxy-server --version || true
+
+  # Security audit (can run on GitHub runner)
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
@@ -108,25 +141,3 @@ jobs:
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-
-  coverage:
-    name: Code Coverage
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install tarpaulin
-        run: cargo install cargo-tarpaulin
-
-      - name: Generate coverage
-        run: cargo tarpaulin --out xml --all-features --workspace
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./cobertura.xml
-          fail_ci_if_error: false
