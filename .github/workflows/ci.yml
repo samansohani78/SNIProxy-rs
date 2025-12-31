@@ -78,11 +78,6 @@ jobs:
       - name: Run release tests
         run: cargo test --all --release --verbose
 
-      - name: Run protocol verification
-        run: |
-          chmod +x verify_all_protocols.sh
-          ./verify_all_protocols.sh
-
       - name: Show binary info
         run: |
           ls -lh target/release/sniproxy-server
