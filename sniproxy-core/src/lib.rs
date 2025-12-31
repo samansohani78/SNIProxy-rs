@@ -1,7 +1,7 @@
 pub mod connection;
 pub mod connection_pool;
-pub mod metrics_cache;
 mod http;
+pub mod metrics_cache;
 
 use connection::ConnectionHandler;
 use futures::StreamExt;

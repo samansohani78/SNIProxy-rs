@@ -479,10 +479,8 @@ impl ConnectionHandler {
             const TX: &str = "tx";
             const RX: &str = "rx";
             (
-                m.bytes_transferred
-                    .with_label_values(&[label.as_ref(), TX]),
-                m.bytes_transferred
-                    .with_label_values(&[label.as_ref(), RX]),
+                m.bytes_transferred.with_label_values(&[label.as_ref(), TX]),
+                m.bytes_transferred.with_label_values(&[label.as_ref(), RX]),
             )
         });
 
@@ -559,10 +557,8 @@ impl ConnectionHandler {
             const TX: &str = "tx";
             const RX: &str = "rx";
             (
-                m.bytes_transferred
-                    .with_label_values(&[label.as_ref(), TX]),
-                m.bytes_transferred
-                    .with_label_values(&[label.as_ref(), RX]),
+                m.bytes_transferred.with_label_values(&[label.as_ref(), TX]),
+                m.bytes_transferred.with_label_values(&[label.as_ref(), RX]),
             )
         });
 
@@ -623,10 +619,8 @@ impl ConnectionHandler {
             const TX: &str = "tx";
             const RX: &str = "rx";
             (
-                m.bytes_transferred
-                    .with_label_values(&[label.as_ref(), TX]),
-                m.bytes_transferred
-                    .with_label_values(&[label.as_ref(), RX]),
+                m.bytes_transferred.with_label_values(&[label.as_ref(), TX]),
+                m.bytes_transferred.with_label_values(&[label.as_ref(), RX]),
             )
         });
 
@@ -794,10 +788,8 @@ impl ConnectionHandler {
             const TX: &str = "tx";
             const RX: &str = "rx";
             (
-                m.bytes_transferred
-                    .with_label_values(&[label.as_ref(), TX]),
-                m.bytes_transferred
-                    .with_label_values(&[label.as_ref(), RX]),
+                m.bytes_transferred.with_label_values(&[label.as_ref(), TX]),
+                m.bytes_transferred.with_label_values(&[label.as_ref(), RX]),
             )
         });
 
