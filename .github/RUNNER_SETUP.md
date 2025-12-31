@@ -65,6 +65,8 @@ YOUR_RUNNER_USER ALL=(ALL) NOPASSWD: /bin/cp * /usr/local/bin/sniproxy-server
 YOUR_RUNNER_USER ALL=(ALL) NOPASSWD: /bin/chmod +x /usr/local/bin/sniproxy-server
 YOUR_RUNNER_USER ALL=(ALL) NOPASSWD: /bin/mkdir -p /etc/sniproxy
 YOUR_RUNNER_USER ALL=(ALL) NOPASSWD: /usr/bin/bash */install.sh
+YOUR_RUNNER_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get update
+YOUR_RUNNER_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get install -y build-essential
 ```
 
 Set correct permissions:
@@ -73,7 +75,21 @@ Set correct permissions:
 sudo chmod 0440 /etc/sudoers.d/github-runner
 ```
 
-## 3. Verify Rust Installation
+## 3. Install Build Dependencies
+
+The runner needs a C compiler and linker for Rust builds:
+
+```bash
+# Install build-essential (required for linking)
+sudo apt-get update
+sudo apt-get install -y build-essential
+
+# Verify installation
+gcc --version
+cc --version
+```
+
+## 4. Verify Rust Installation
 
 The runner needs Rust toolchain:
 
@@ -87,14 +103,14 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source $HOME/.cargo/env
 ```
 
-## 4. Create Working Directory
+## 5. Create Working Directory
 
 ```bash
 # Create directory for builds
 mkdir -p ~/actions-runner/_work/SNIProxy-rs/SNIProxy-rs
 ```
 
-## 5. Test Runner
+## 6. Test Runner
 
 ```bash
 # Check runner status
@@ -104,13 +120,13 @@ sudo ./svc.sh status
 journalctl -u actions.runner.* -f
 ```
 
-## 6. Verify GitHub Connection
+## 7. Verify GitHub Connection
 
 1. Go to: https://github.com/samansohani78/SNIProxy-rs/settings/actions/runners
 2. You should see runner "sniproxy" with status "Idle"
 3. Tag should show: "sniproxy"
 
-## 7. Test Deployment
+## 8. Test Deployment
 
 Make a small change and push:
 
