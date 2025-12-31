@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::signal;
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::{Semaphore, broadcast};
 use tokio::time::timeout;
 use tracing::{error, info, warn};
 
@@ -150,7 +150,8 @@ pub async fn run_proxy(
         for handle in connection_handles {
             let _ = handle.await;
         }
-    }).await;
+    })
+    .await;
 
     match shutdown_result {
         Ok(_) => {

@@ -7,9 +7,7 @@
 /// - WebSocket
 /// - gRPC (detection)
 /// - HTTP/3 (ALPN detection)
-
 // Protocol test helpers and utilities
-
 // Helper function to build TLS ClientHello with SNI and optional ALPN
 fn build_client_hello(domain: &str, alpn_protocols: Option<&[&[u8]]>) -> Vec<u8> {
     let domain_bytes = domain.as_bytes();
@@ -81,7 +79,7 @@ fn build_client_hello(domain: &str, alpn_protocols: Option<&[&[u8]]>) -> Vec<u8>
     record.extend_from_slice(domain_bytes);
 
     // ALPN Extension if present
-    if let Some(_) = alpn_protocols {
+    if alpn_protocols.is_some() {
         let alpn_list_len = alpn_data.len() as u16;
         let alpn_ext_len = 2 + alpn_list_len;
         record.extend_from_slice(&[
@@ -286,7 +284,10 @@ fn test_sni_extraction_various_domains() {
         None,
     );
     let sni = extract_sni(&long_hello).expect("Failed to extract SNI");
-    assert_eq!(sni, "very.long.subdomain.production.api.service.example.com");
+    assert_eq!(
+        sni,
+        "very.long.subdomain.production.api.service.example.com"
+    );
 
     // Test IDN domain (punycode)
     let idn_hello = build_client_hello("xn--e1afmkfd.xn--p1ai", None);
@@ -331,14 +332,7 @@ async fn test_protocol_detection_order() {
 
     // HTTP/1.x should be detected by method
     let http_methods = vec![
-        "GET ",
-        "POST ",
-        "PUT ",
-        "DELETE ",
-        "HEAD ",
-        "OPTIONS ",
-        "PATCH ",
-        "TRACE ",
+        "GET ", "POST ", "PUT ", "DELETE ", "HEAD ", "OPTIONS ", "PATCH ", "TRACE ",
     ];
 
     for method in &http_methods {
@@ -359,7 +353,7 @@ async fn test_mixed_protocol_scenarios() {
     // Scenario 2: HTTP/2 with gRPC
     let grpc_h2_hello = build_client_hello("grpc.example.com", Some(&[b"h2"]));
     assert_eq!(grpc_h2_hello[0], 0x16); // TLS
-                                         // Would have h2 ALPN
+    // Would have h2 ALPN
 
     // Scenario 3: HTTP/1.1 with HTTP/2 upgrade
     let h2_upgrade = b"GET / HTTP/1.1\r\n\
@@ -374,7 +368,7 @@ HTTP2-Settings: AAMAAABkAARAAAAAAAIAAAAA\r\n\
 
 #[test]
 fn test_malformed_requests() {
-    use sniproxy_core::{extract_sni, SniError};
+    use sniproxy_core::{SniError, extract_sni};
 
     // Empty record
     let empty = vec![];
@@ -409,10 +403,16 @@ fn test_malformed_requests() {
 async fn test_concurrent_protocol_handling() {
     // Simulate multiple concurrent connections with different protocols
     let protocols = vec![
-        ("http1", b"GET / HTTP/1.1\r\nHost: test1.com\r\n\r\n".to_vec()),
+        (
+            "http1",
+            b"GET / HTTP/1.1\r\nHost: test1.com\r\n\r\n".to_vec(),
+        ),
         ("http2", b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n".to_vec()),
         ("tls", build_client_hello("test3.com", None)),
-        ("ws", b"GET /ws HTTP/1.1\r\nHost: test4.com\r\nUpgrade: websocket\r\n\r\n".to_vec()),
+        (
+            "ws",
+            b"GET /ws HTTP/1.1\r\nHost: test4.com\r\nUpgrade: websocket\r\n\r\n".to_vec(),
+        ),
     ];
 
     for (name, data) in protocols {
@@ -422,8 +422,8 @@ async fn test_concurrent_protocol_handling() {
 
 #[test]
 fn test_performance_critical_paths() {
-    use std::time::Instant;
     use sniproxy_core::extract_sni;
+    use std::time::Instant;
 
     // Test SNI extraction performance
     let client_hello = build_client_hello("performance.test.example.com", Some(&[b"h2"]));

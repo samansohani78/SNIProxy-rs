@@ -1,3 +1,6 @@
+use prometheus::Registry;
+use sniproxy_config::Config;
+use sniproxy_core::run_proxy;
 /// Live Integration Tests for SNIProxy-rs
 ///
 /// These tests verify the proxy can start, listen, and accept connections.
@@ -9,15 +12,11 @@
 /// - Metrics endpoint availability
 /// - Multiple proxy instances
 /// - Configuration validation
-
 use std::time::Duration;
-use tokio::net::{TcpStream, TcpListener};
-use tokio::time::sleep;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
-use prometheus::Registry;
-use sniproxy_config::Config;
-use sniproxy_core::run_proxy;
+use tokio::time::sleep;
 
 // Helper to create a test config
 fn create_test_config(proxy_port: u16, metrics_port: u16) -> Config {
@@ -74,7 +73,11 @@ async fn test_proxy_starts_and_listens() {
 
     // Verify proxy is listening
     let can_connect = wait_for_server(&format!("127.0.0.1:{}", proxy_port), 30).await;
-    assert!(can_connect, "Proxy should be listening on port {}", proxy_port);
+    assert!(
+        can_connect,
+        "Proxy should be listening on port {}",
+        proxy_port
+    );
 
     // Cleanup
     proxy_handle.abort();
@@ -102,7 +105,11 @@ async fn test_metrics_endpoint_available() {
 
     // Verify metrics endpoint works (more attempts for slower systems)
     let metrics_works = wait_for_server(&format!("127.0.0.1:{}", metrics_port), 100).await;
-    assert!(metrics_works, "Metrics endpoint should be listening on port {}", metrics_port);
+    assert!(
+        metrics_works,
+        "Metrics endpoint should be listening on port {}",
+        metrics_port
+    );
 
     // Cleanup
     proxy_handle.abort();
@@ -203,10 +210,7 @@ async fn test_proxy_with_allowlist() {
             enabled: true,
             address: format!("127.0.0.1:{}", metrics_port),
         },
-        allowlist: Some(vec![
-            "example.com".to_string(),
-            "*.test.com".to_string(),
-        ]),
+        allowlist: Some(vec!["example.com".to_string(), "*.test.com".to_string()]),
         max_connections: Some(1000),
         shutdown_timeout: Some(10),
         connection_pool: None,
@@ -270,18 +274,18 @@ async fn start_http11_backend(port: u16) -> tokio::task::JoinHandle<()> {
         while let Ok((mut socket, _)) = listener.accept().await {
             tokio::spawn(async move {
                 let mut buffer = vec![0u8; 4096];
-                if let Ok(n) = socket.read(&mut buffer).await {
-                    if n > 0 {
-                        // Simple HTTP/1.1 response
-                        let response = b"HTTP/1.1 200 OK\r\n\
+                if let Ok(n) = socket.read(&mut buffer).await
+                    && n > 0
+                {
+                    // Simple HTTP/1.1 response
+                    let response = b"HTTP/1.1 200 OK\r\n\
 Content-Type: text/plain\r\n\
 Content-Length: 12\r\n\
 Connection: close\r\n\
 \r\n\
 Hello, World";
-                        let _ = socket.write_all(response).await;
-                        let _ = socket.shutdown().await;
-                    }
+                    let _ = socket.write_all(response).await;
+                    let _ = socket.shutdown().await;
                 }
             });
         }
@@ -380,9 +384,7 @@ fn create_client_hello(server_name: &str) -> Vec<u8> {
     client_hello.push(0x03);
 
     // Random (32 bytes)
-    for _ in 0..32 {
-        client_hello.push(0x00);
-    }
+    client_hello.extend(std::iter::repeat_n(0x00, 32));
 
     // Session ID (0 length)
     client_hello.push(0x00);
@@ -425,11 +427,11 @@ fn create_client_hello(server_name: &str) -> Vec<u8> {
     client_hello.extend_from_slice(server_name.as_bytes());
 
     // Fill in lengths
-    let sni_ext_length = (sni_list_length + 2) as u16;
+    let sni_ext_length = sni_list_length + 2;
     client_hello[sni_ext_length_pos] = (sni_ext_length >> 8) as u8;
     client_hello[sni_ext_length_pos + 1] = (sni_ext_length & 0xff) as u8;
 
-    let extensions_length = (sni_ext_length + 4) as u16;
+    let extensions_length = sni_ext_length + 4;
     client_hello[extensions_length_pos] = (extensions_length >> 8) as u8;
     client_hello[extensions_length_pos + 1] = (extensions_length & 0xff) as u8;
 

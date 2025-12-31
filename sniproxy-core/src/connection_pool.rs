@@ -92,10 +92,8 @@ impl PoolMetrics {
             "sniproxy_pool_evictions_total",
             "Total connections evicted from pool (expired or idle)",
         )?;
-        let pool_size = IntGauge::new(
-            "sniproxy_pool_size",
-            "Current number of pooled connections",
-        )?;
+        let pool_size =
+            IntGauge::new("sniproxy_pool_size", "Current number of pooled connections")?;
         let active_connections = IntGauge::new(
             "sniproxy_pool_active_connections",
             "Current number of active connections from pool",
@@ -135,7 +133,10 @@ impl ConnectionPool {
     }
 
     /// Create a new connection pool with metrics
-    pub fn with_metrics(config: PoolConfig, registry: &Registry) -> Result<Self, prometheus::Error> {
+    pub fn with_metrics(
+        config: PoolConfig,
+        registry: &Registry,
+    ) -> Result<Self, prometheus::Error> {
         let metrics = PoolMetrics::new(registry)?;
         Ok(Self {
             pools: Arc::new(Mutex::new(HashMap::new())),
@@ -213,7 +214,11 @@ impl ConnectionPool {
         // Add connection to pool
         pool.push(PooledConnection::new(stream));
 
-        debug!(host = host, pool_size = pool.len(), "Returned connection to pool");
+        debug!(
+            host = host,
+            pool_size = pool.len(),
+            "Returned connection to pool"
+        );
 
         if let Some(ref metrics) = self.metrics {
             metrics.pool_size.inc();
@@ -244,7 +249,11 @@ impl ConnectionPool {
             let evicted = before - pool.len();
 
             if evicted > 0 {
-                debug!(host = host, evicted = evicted, "Cleaned up expired connections");
+                debug!(
+                    host = host,
+                    evicted = evicted,
+                    "Cleaned up expired connections"
+                );
                 total_evicted += evicted;
             }
         }
@@ -275,10 +284,7 @@ impl ConnectionPool {
     /// Start background cleanup task
     ///
     /// Returns a JoinHandle that will run cleanup every interval
-    pub fn start_cleanup_task(
-        self: Arc<Self>,
-        interval: Duration,
-    ) -> tokio::task::JoinHandle<()> {
+    pub fn start_cleanup_task(self: Arc<Self>, interval: Duration) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(interval);
             loop {

@@ -116,7 +116,7 @@ fn bench_sni_extraction(c: &mut Criterion) {
 fn bench_alpn_extraction(c: &mut Criterion) {
     let mut group = c.benchmark_group("alpn_extraction");
 
-    for protocol in &[b"h2", b"h3", b"http/1.1"] {
+    for protocol in &[b"h2".as_slice(), b"h3".as_slice(), b"http/1.1".as_slice()] {
         let record = build_client_hello_with_alpn(protocol);
         let protocol_name = std::str::from_utf8(protocol).unwrap();
         group.bench_with_input(

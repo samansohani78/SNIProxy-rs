@@ -149,10 +149,10 @@ impl Config {
     ///   address: "127.0.0.1:9000"
     /// "#;
     ///
-    /// let config = Config::from_str(yaml).unwrap();
+    /// let config = Config::parse(yaml).unwrap();
     /// assert_eq!(config.listen_addrs[0], "0.0.0.0:443");
     /// ```
-    pub fn from_str(contents: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn parse(contents: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let config = serde_yaml::from_str(contents)?;
         Ok(config)
     }
@@ -223,7 +223,7 @@ allowlist:
   - "example.com"
   - "*.example.com"
 "#;
-        let config = Config::from_str(yaml).unwrap();
+        let config = Config::parse(yaml).unwrap();
         assert_eq!(config.listen_addrs.len(), 2);
         assert_eq!(config.listen_addrs[0], "0.0.0.0:80");
         assert_eq!(config.timeouts.connect, 10);
@@ -250,7 +250,7 @@ metrics:
   enabled: false
   address: "127.0.0.1:9000"
 "#;
-        let config = Config::from_str(yaml).unwrap();
+        let config = Config::parse(yaml).unwrap();
         assert!(config.allowlist.is_none());
         assert!(!config.metrics.enabled);
     }
@@ -267,21 +267,21 @@ metrics:
   enabled: false
   address: "127.0.0.1:9000"
 "#;
-        let result = Config::from_str(yaml);
+        let result = Config::parse(yaml);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_invalid_yaml() {
         let yaml = "invalid: yaml: content: ::::";
-        let result = Config::from_str(yaml);
+        let result = Config::parse(yaml);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_empty_config() {
         let yaml = "";
-        let result = Config::from_str(yaml);
+        let result = Config::parse(yaml);
         assert!(result.is_err());
     }
 

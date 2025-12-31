@@ -220,7 +220,7 @@ impl ConnectionHandler {
                 idle_timeout: pool_config.idle_timeout,
             };
 
-            let pool = if let Some(ref reg) = registry {
+            let pool = if let Some(reg) = registry {
                 ConnectionPool::with_metrics(pool_cfg, reg).ok()
             } else {
                 Some(ConnectionPool::new(pool_cfg))
@@ -231,7 +231,11 @@ impl ConnectionHandler {
             None
         };
 
-        Self { config, metrics, pool }
+        Self {
+            config,
+            metrics,
+            pool,
+        }
     }
 
     pub async fn handle_connection(&self, mut client: TcpStream, client_addr: SocketAddr) {
@@ -361,7 +365,9 @@ impl ConnectionHandler {
                     "Unknown protocol detected - proxy requires SNI (TLS) or Host header (HTTP)"
                 );
 
-                return Err("Unknown protocol - SNIProxy requires SNI (TLS) or Host header (HTTP)".into());
+                return Err(
+                    "Unknown protocol - SNIProxy requires SNI (TLS) or Host header (HTTP)".into(),
+                );
             }
         }
 
@@ -481,8 +487,7 @@ impl ConnectionHandler {
             }
             _ => {
                 // Standard HTTP tunneling
-                http::tunnel_http(client, &buffer[..bytes_read], &hostname, port, metrics)
-                    .await?
+                http::tunnel_http(client, &buffer[..bytes_read], &hostname, port, metrics).await?
             }
         }
 
@@ -622,11 +627,11 @@ impl ConnectionHandler {
         target_addr: &str,
     ) -> Result<TcpStream, Box<dyn std::error::Error>> {
         // Try to get connection from pool first
-        if let Some(ref pool) = self.pool {
-            if let Some(stream) = pool.get(target_addr).await {
-                debug!("Using pooled connection to {}", target_addr);
-                return Ok(stream);
-            }
+        if let Some(ref pool) = self.pool
+            && let Some(stream) = pool.get(target_addr).await
+        {
+            debug!("Using pooled connection to {}", target_addr);
+            return Ok(stream);
         }
 
         // No pooled connection available, create new one

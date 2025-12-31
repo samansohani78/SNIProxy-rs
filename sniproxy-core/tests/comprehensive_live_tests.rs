@@ -1,3 +1,6 @@
+use prometheus::Registry;
+use sniproxy_config::Config;
+use sniproxy_core::run_proxy;
 /// Comprehensive Live Integration Tests for SNIProxy-rs
 ///
 /// These tests verify the proxy can successfully pass traffic for all supported protocols:
@@ -9,15 +12,11 @@
 ///
 /// Each test creates a real backend server, starts the proxy, and verifies
 /// end-to-end data flow through the proxy.
-
 use std::time::Duration;
-use tokio::net::{TcpStream, TcpListener};
-use tokio::time::sleep;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::broadcast;
-use prometheus::Registry;
-use sniproxy_config::Config;
-use sniproxy_core::run_proxy;
+use tokio::time::sleep;
 
 // ============================================================================
 // Helper Functions
@@ -76,17 +75,17 @@ async fn start_http11_backend(port: u16) -> tokio::task::JoinHandle<()> {
         while let Ok((mut socket, _)) = listener.accept().await {
             tokio::spawn(async move {
                 let mut buffer = vec![0u8; 4096];
-                if let Ok(n) = socket.read(&mut buffer).await {
-                    if n > 0 {
-                        let response = b"HTTP/1.1 200 OK\r\n\
+                if let Ok(n) = socket.read(&mut buffer).await
+                    && n > 0
+                {
+                    let response = b"HTTP/1.1 200 OK\r\n\
 Content-Type: text/plain\r\n\
 Content-Length: 21\r\n\
 Connection: close\r\n\
 \r\n\
 Hello from HTTP/1.1!";
-                        let _ = socket.write_all(response).await;
-                        let _ = socket.shutdown().await;
-                    }
+                    let _ = socket.write_all(response).await;
+                    let _ = socket.shutdown().await;
                 }
             });
         }
@@ -103,28 +102,28 @@ async fn start_websocket_backend(port: u16) -> tokio::task::JoinHandle<()> {
         while let Ok((mut socket, _)) = listener.accept().await {
             tokio::spawn(async move {
                 let mut buffer = vec![0u8; 4096];
-                if let Ok(n) = socket.read(&mut buffer).await {
-                    if n > 0 {
-                        // Check if it's a WebSocket upgrade request
-                        let request = String::from_utf8_lossy(&buffer[..n]);
-                        if request.contains("Upgrade: websocket") {
-                            // Send WebSocket upgrade response
-                            let response = b"HTTP/1.1 101 Switching Protocols\r\n\
+                if let Ok(n) = socket.read(&mut buffer).await
+                    && n > 0
+                {
+                    // Check if it's a WebSocket upgrade request
+                    let request = String::from_utf8_lossy(&buffer[..n]);
+                    if request.contains("Upgrade: websocket") {
+                        // Send WebSocket upgrade response
+                        let response = b"HTTP/1.1 101 Switching Protocols\r\n\
 Upgrade: websocket\r\n\
 Connection: Upgrade\r\n\
 Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\
 \r\n";
-                            let _ = socket.write_all(response).await;
+                        let _ = socket.write_all(response).await;
 
-                            // Now in WebSocket mode - echo any frames received
-                            let mut ws_buffer = vec![0u8; 1024];
-                            while let Ok(n) = socket.read(&mut ws_buffer).await {
-                                if n == 0 {
-                                    break;
-                                }
-                                // Echo back the frame
-                                let _ = socket.write_all(&ws_buffer[..n]).await;
+                        // Now in WebSocket mode - echo any frames received
+                        let mut ws_buffer = vec![0u8; 1024];
+                        while let Ok(n) = socket.read(&mut ws_buffer).await {
+                            if n == 0 {
+                                break;
                             }
+                            // Echo back the frame
+                            let _ = socket.write_all(&ws_buffer[..n]).await;
                         }
                     }
                 }
@@ -143,15 +142,15 @@ async fn start_http2_backend(port: u16) -> tokio::task::JoinHandle<()> {
         while let Ok((mut socket, _)) = listener.accept().await {
             tokio::spawn(async move {
                 let mut buffer = vec![0u8; 4096];
-                if let Ok(n) = socket.read(&mut buffer).await {
-                    if n > 0 {
-                        // Simple response for HTTP/2 preface
-                        // In reality, would need proper HTTP/2 frame handling
-                        // For testing, just acknowledge receipt
-                        let response = b"HTTP/2.0 200 OK\r\n\r\nHTTP/2 backend response";
-                        let _ = socket.write_all(response).await;
-                        let _ = socket.shutdown().await;
-                    }
+                if let Ok(n) = socket.read(&mut buffer).await
+                    && n > 0
+                {
+                    // Simple response for HTTP/2 preface
+                    // In reality, would need proper HTTP/2 frame handling
+                    // For testing, just acknowledge receipt
+                    let response = b"HTTP/2.0 200 OK\r\n\r\nHTTP/2 backend response";
+                    let _ = socket.write_all(response).await;
+                    let _ = socket.shutdown().await;
                 }
             });
         }
@@ -168,18 +167,18 @@ async fn start_grpc_backend(port: u16) -> tokio::task::JoinHandle<()> {
         while let Ok((mut socket, _)) = listener.accept().await {
             tokio::spawn(async move {
                 let mut buffer = vec![0u8; 4096];
-                if let Ok(n) = socket.read(&mut buffer).await {
-                    if n > 0 {
-                        let request = String::from_utf8_lossy(&buffer[..n]);
-                        if request.contains("application/grpc") {
-                            // Simple gRPC-like response
-                            let response = b"HTTP/2.0 200 OK\r\n\
+                if let Ok(n) = socket.read(&mut buffer).await
+                    && n > 0
+                {
+                    let request = String::from_utf8_lossy(&buffer[..n]);
+                    if request.contains("application/grpc") {
+                        // Simple gRPC-like response
+                        let response = b"HTTP/2.0 200 OK\r\n\
 content-type: application/grpc\r\n\
 \r\n\
 gRPC response";
-                            let _ = socket.write_all(response).await;
-                            let _ = socket.shutdown().await;
-                        }
+                        let _ = socket.write_all(response).await;
+                        let _ = socket.shutdown().await;
                     }
                 }
             });
@@ -229,7 +228,10 @@ Connection: close\r\n\
         backend_port
     );
 
-    stream.write_all(request.as_bytes()).await.expect("Failed to send request");
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .expect("Failed to send request");
     println!("✓ Sent HTTP/1.1 request through proxy");
 
     // Read response with timeout
@@ -245,8 +247,14 @@ Connection: close\r\n\
     println!("✓ Received response ({} bytes)", bytes_read);
 
     // Verify response content
-    assert!(response_str.contains("200 OK"), "Should receive 200 OK response");
-    assert!(response_str.contains("Hello from HTTP/1.1!"), "Should receive correct body");
+    assert!(
+        response_str.contains("200 OK"),
+        "Should receive 200 OK response"
+    );
+    assert!(
+        response_str.contains("Hello from HTTP/1.1!"),
+        "Should receive correct body"
+    );
     println!("✓ Response content verified");
 
     // Cleanup
@@ -295,7 +303,10 @@ Sec-WebSocket-Version: 13\r\n\
         backend_port
     );
 
-    stream.write_all(upgrade_request.as_bytes()).await.expect("Failed to send upgrade");
+    stream
+        .write_all(upgrade_request.as_bytes())
+        .await
+        .expect("Failed to send upgrade");
     println!("✓ Sent WebSocket upgrade request");
 
     // Read upgrade response
@@ -311,8 +322,14 @@ Sec-WebSocket-Version: 13\r\n\
     println!("✓ Received upgrade response ({} bytes)", bytes_read);
 
     // Verify WebSocket upgrade response
-    assert!(response_str.contains("101 Switching Protocols"), "Should receive 101 response");
-    assert!(response_str.contains("Upgrade: websocket"), "Should have Upgrade header");
+    assert!(
+        response_str.contains("101 Switching Protocols"),
+        "Should receive 101 response"
+    );
+    assert!(
+        response_str.contains("Upgrade: websocket"),
+        "Should have Upgrade header"
+    );
     println!("✓ WebSocket upgrade successful");
 
     // Cleanup
@@ -352,7 +369,10 @@ async fn test_comprehensive_http2_traffic() {
 
     // HTTP/2 connection preface
     let preface = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
-    stream.write_all(preface).await.expect("Failed to send preface");
+    stream
+        .write_all(preface)
+        .await
+        .expect("Failed to send preface");
     println!("✓ Sent HTTP/2 connection preface");
 
     // For HTTP/2 cleartext (h2c), the proxy should forward to backend
@@ -404,7 +424,10 @@ TE: trailers\r\n\
         backend_port
     );
 
-    stream.write_all(grpc_request.as_bytes()).await.expect("Failed to send gRPC request");
+    stream
+        .write_all(grpc_request.as_bytes())
+        .await
+        .expect("Failed to send gRPC request");
     println!("✓ Sent gRPC request through proxy");
 
     // Give it time to process
@@ -429,7 +452,10 @@ async fn test_comprehensive_concurrent_mixed_protocols() {
     let http_backend = start_http11_backend(http_port).await;
     let ws_backend = start_websocket_backend(ws_port).await;
     sleep(Duration::from_millis(300)).await;
-    println!("✓ Multiple backends started (HTTP:{}, WS:{})", http_port, ws_port);
+    println!(
+        "✓ Multiple backends started (HTTP:{}, WS:{})",
+        http_port, ws_port
+    );
 
     // Start proxy
     let proxy_port = find_available_port().await;
@@ -463,10 +489,10 @@ async fn test_comprehensive_concurrent_mixed_protocols() {
                 );
                 if stream.write_all(request.as_bytes()).await.is_ok() {
                     let mut response = vec![0u8; 4096];
-                    if let Ok(Ok(n)) = tokio::time::timeout(
-                        Duration::from_secs(5),
-                        stream.read(&mut response)
-                    ).await {
+                    if let Ok(Ok(n)) =
+                        tokio::time::timeout(Duration::from_secs(5), stream.read(&mut response))
+                            .await
+                    {
                         return n > 0 && String::from_utf8_lossy(&response[..n]).contains("200 OK");
                     }
                 }
@@ -494,10 +520,10 @@ Sec-WebSocket-Version: 13\r\n\
                 );
                 if stream.write_all(request.as_bytes()).await.is_ok() {
                     let mut response = vec![0u8; 4096];
-                    if let Ok(Ok(n)) = tokio::time::timeout(
-                        Duration::from_secs(5),
-                        stream.read(&mut response)
-                    ).await {
+                    if let Ok(Ok(n)) =
+                        tokio::time::timeout(Duration::from_secs(5), stream.read(&mut response))
+                            .await
+                    {
                         return n > 0 && String::from_utf8_lossy(&response[..n]).contains("101");
                     }
                 }
@@ -515,8 +541,14 @@ Sec-WebSocket-Version: 13\r\n\
         }
     }
 
-    println!("✓ Completed {}/8 concurrent requests successfully", success_count);
-    assert!(success_count >= 6, "At least 6/8 concurrent requests should succeed");
+    println!(
+        "✓ Completed {}/8 concurrent requests successfully",
+        success_count
+    );
+    assert!(
+        success_count >= 6,
+        "At least 6/8 concurrent requests should succeed"
+    );
 
     // Cleanup
     proxy_handle.abort();
@@ -560,13 +592,12 @@ async fn test_comprehensive_high_volume_http11() {
 
             if stream.write_all(request.as_bytes()).await.is_ok() {
                 let mut response = vec![0u8; 4096];
-                if let Ok(Ok(n)) = tokio::time::timeout(
-                    Duration::from_secs(3),
-                    stream.read(&mut response)
-                ).await {
-                    if n > 0 && String::from_utf8_lossy(&response[..n]).contains("200 OK") {
-                        success_count += 1;
-                    }
+                if let Ok(Ok(n)) =
+                    tokio::time::timeout(Duration::from_secs(3), stream.read(&mut response)).await
+                    && n > 0
+                    && String::from_utf8_lossy(&response[..n]).contains("200 OK")
+                {
+                    success_count += 1;
                 }
             }
         }
@@ -575,8 +606,15 @@ async fn test_comprehensive_high_volume_http11() {
         sleep(Duration::from_millis(10)).await;
     }
 
-    println!("✓ Completed {}/50 high-volume requests successfully", success_count);
-    assert!(success_count >= 45, "At least 45/50 requests should succeed ({})", success_count);
+    println!(
+        "✓ Completed {}/50 high-volume requests successfully",
+        success_count
+    );
+    assert!(
+        success_count >= 45,
+        "At least 45/50 requests should succeed ({})",
+        success_count
+    );
 
     // Cleanup
     proxy_handle.abort();

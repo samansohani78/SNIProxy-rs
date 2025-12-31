@@ -267,7 +267,9 @@ pub async fn detect_grpc(stream: &mut TcpStream) -> Result<bool, HttpError> {
 /// This is a simplified HTTP/2 frame parser. It searches for the :authority
 /// field in the HPACK-encoded headers using pattern matching rather than
 /// a full HPACK decoder. This works for most common cases.
-pub async fn extract_http2_authority(stream: &mut TcpStream) -> Result<(String, Vec<u8>), HttpError> {
+pub async fn extract_http2_authority(
+    stream: &mut TcpStream,
+) -> Result<(String, Vec<u8>), HttpError> {
     let detection_timeout = Duration::from_secs(5);
 
     // Read HTTP/2 frame header (9 bytes)
@@ -331,10 +333,10 @@ pub async fn extract_http2_authority(stream: &mut TcpStream) -> Result<(String, 
     for i in 0..payload.len().saturating_sub(20) {
         if payload[i] == 0x01 || payload[i] == 0x81 || payload[i] == 0x41 {
             // Might be indexed :authority, check if followed by a hostname pattern
-            if let Some(authority) = extract_authority_value(&payload[i + 1..]) {
-                if authority.contains('.') || authority.contains(':') {
-                    return Ok((authority, frame_data));
-                }
+            if let Some(authority) = extract_authority_value(&payload[i + 1..])
+                && (authority.contains('.') || authority.contains(':'))
+            {
+                return Ok((authority, frame_data));
             }
         }
     }
@@ -352,7 +354,7 @@ fn extract_authority_value(data: &[u8]) -> Option<String> {
     let len = data[0] as usize;
 
     // Sanity check: hostname should be between 3 and 255 characters
-    if len < 3 || len > 255 || len + 1 > data.len() {
+    if !(3..=255).contains(&len) || len + 1 > data.len() {
         return None;
     }
 
@@ -376,9 +378,9 @@ fn is_valid_hostname(s: &str) -> bool {
     }
 
     // Check for valid hostname characters
-    s.chars().all(|c| {
-        c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == ':' || c == '_'
-    }) && (s.contains('.') || s.contains(':'))
+    s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == ':' || c == '_')
+        && (s.contains('.') || s.contains(':'))
 }
 
 /// Copy data with metrics tracking

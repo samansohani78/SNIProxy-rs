@@ -29,7 +29,7 @@ allowlist:
   - "*api.service.io"
 "#;
 
-    let config = Config::from_str(yaml_config)?;
+    let config = Config::parse(yaml_config)?;
     println!("   ✓ Loaded {} listen addresses", config.listen_addrs.len());
     println!("   ✓ Connect timeout: {}s", config.timeouts.connect);
     println!("   ✓ Metrics enabled: {}", config.metrics.enabled);
@@ -84,7 +84,7 @@ metrics:
   address: "127.0.0.1:9000"
 "#;
 
-    match Config::from_str(invalid_yaml) {
+    match Config::parse(invalid_yaml) {
         Ok(_) => println!("   ✗ Unexpectedly succeeded with invalid config"),
         Err(e) => println!("   ✓ Correctly rejected invalid config: {}", e),
     }

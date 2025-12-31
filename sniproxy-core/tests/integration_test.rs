@@ -19,7 +19,7 @@ allowlist:
   - "*.example.org"
 "#;
 
-    let config = Config::from_str(config_str).expect("Failed to parse config");
+    let config = Config::parse(config_str).expect("Failed to parse config");
     assert_eq!(config.listen_addrs.len(), 2);
     assert_eq!(config.timeouts.connect, 10);
     assert!(config.metrics.enabled);
