@@ -16,11 +16,11 @@ description = "A high-performance SNI proxy in Rust"
 repository = "https://github.com/samansohani78/SNIProxy-rs"
 
 [workspace.dependencies]
-tokio = { version = "1.41", features = ["full"] }
-hyper = { version = "1.5", features = ["full"] }
+tokio = { version = "1.48", features = ["full"] }
+hyper = { version = "1.8", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
-bytes = "1.8"
+bytes = "1.11"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 prometheus = "0.14"
