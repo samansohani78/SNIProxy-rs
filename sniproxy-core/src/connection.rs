@@ -15,6 +15,7 @@ use tracing::{debug, error, info, warn};
 const MAX_TLS_HEADER_SIZE: usize = 16384; // Increased size for TLS header
 const MIN_TLS_HEADER_SIZE: usize = 5; // Minimum size for TLS header
 const PEEK_SIZE: usize = 24; // Size to peek for protocol detection (enough for HTTP/2 preface)
+const COPY_BUFFER_SIZE: usize = 32768; // 32KB buffer for bidirectional copy (optimized for throughput)
 
 const HTTP_METHODS: [&[u8]; 8] = [
     b"GET ",
@@ -647,7 +648,7 @@ impl ConnectionHandler {
     ) -> Result<TcpStream, Box<dyn std::error::Error>> {
         // Try to get connection from pool first
         if let Some(ref pool) = self.pool
-            && let Some(stream) = pool.get(target_addr).await
+            && let Some(stream) = pool.get(target_addr)
         {
             debug!("Using pooled connection to {}", target_addr);
             return Ok(stream);
@@ -672,7 +673,7 @@ impl ConnectionHandler {
     #[allow(dead_code)]
     async fn return_to_pool(&self, target_addr: String, stream: TcpStream) {
         if let Some(ref pool) = self.pool {
-            if pool.put(target_addr, stream).await {
+            if pool.put(target_addr, stream) {
                 debug!("Connection returned to pool");
             } else {
                 debug!("Connection not returned to pool (pool full or disabled)");
@@ -838,7 +839,7 @@ where
     let (mut server_read, mut server_write) = io::split(server);
 
     let client_to_server = async {
-        let mut buf = [0u8; 8192];
+        let mut buf = [0u8; COPY_BUFFER_SIZE];
         loop {
             let n = timeout(idle_timeout, client_read.read(&mut buf)).await??;
             if n == 0 {
@@ -854,7 +855,7 @@ where
     };
 
     let server_to_client = async {
-        let mut buf = [0u8; 8192];
+        let mut buf = [0u8; COPY_BUFFER_SIZE];
         loop {
             let n = timeout(idle_timeout, server_read.read(&mut buf)).await??;
             if n == 0 {

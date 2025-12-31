@@ -3,11 +3,10 @@
 //! This module provides connection pooling functionality to reuse backend connections,
 //! reducing file descriptor usage and improving performance.
 
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
 use tracing::{debug, info};
 
 use prometheus::{IntCounter, IntGauge, Registry};
@@ -117,7 +116,7 @@ impl PoolMetrics {
 
 /// Connection pool for backend connections
 pub struct ConnectionPool {
-    pools: Arc<Mutex<HashMap<String, Vec<PooledConnection>>>>,
+    pools: Arc<DashMap<String, Vec<PooledConnection>>>,
     config: PoolConfig,
     metrics: Option<PoolMetrics>,
 }
@@ -126,7 +125,7 @@ impl ConnectionPool {
     /// Create a new connection pool
     pub fn new(config: PoolConfig) -> Self {
         Self {
-            pools: Arc::new(Mutex::new(HashMap::new())),
+            pools: Arc::new(DashMap::new()),
             config,
             metrics: None,
         }
@@ -139,7 +138,7 @@ impl ConnectionPool {
     ) -> Result<Self, prometheus::Error> {
         let metrics = PoolMetrics::new(registry)?;
         Ok(Self {
-            pools: Arc::new(Mutex::new(HashMap::new())),
+            pools: Arc::new(DashMap::new()),
             config,
             metrics: Some(metrics),
         })
@@ -148,13 +147,12 @@ impl ConnectionPool {
     /// Try to get a connection from the pool
     ///
     /// Returns Some(TcpStream) if a valid connection is available, None otherwise
-    pub async fn get(&self, host: &str) -> Option<TcpStream> {
+    pub fn get(&self, host: &str) -> Option<TcpStream> {
         if !self.config.enabled {
             return None;
         }
 
-        let mut pools = self.pools.lock().await;
-        let pool = pools.get_mut(host)?;
+        let mut pool = self.pools.get_mut(host)?;
 
         let ttl = Duration::from_secs(self.config.connection_ttl);
         let idle_timeout = Duration::from_secs(self.config.idle_timeout);
@@ -197,13 +195,12 @@ impl ConnectionPool {
     /// Return a connection to the pool
     ///
     /// Returns true if connection was added to pool, false if pool is full
-    pub async fn put(&self, host: String, stream: TcpStream) -> bool {
+    pub fn put(&self, host: String, stream: TcpStream) -> bool {
         if !self.config.enabled {
             return false;
         }
 
-        let mut pools = self.pools.lock().await;
-        let pool = pools.entry(host.clone()).or_insert_with(Vec::new);
+        let mut pool = self.pools.entry(host.clone()).or_insert(Vec::new());
 
         // Check if pool is full
         if pool.len() >= self.config.max_per_host {
@@ -236,14 +233,15 @@ impl ConnectionPool {
     }
 
     /// Cleanup expired connections from all pools
-    pub async fn cleanup(&self) {
-        let mut pools = self.pools.lock().await;
+    pub fn cleanup(&self) {
         let ttl = Duration::from_secs(self.config.connection_ttl);
         let idle_timeout = Duration::from_secs(self.config.idle_timeout);
 
         let mut total_evicted = 0;
 
-        for (host, pool) in pools.iter_mut() {
+        for mut entry in self.pools.iter_mut() {
+            let host = entry.key().to_string(); // Clone the key to avoid borrow conflict
+            let pool = entry.value_mut();
             let before = pool.len();
             pool.retain(|conn| conn.is_valid(ttl, idle_timeout));
             let evicted = before - pool.len();
@@ -269,10 +267,9 @@ impl ConnectionPool {
     }
 
     /// Get statistics about the pool
-    pub async fn stats(&self) -> PoolStats {
-        let pools = self.pools.lock().await;
-        let total_connections: usize = pools.values().map(|p| p.len()).sum();
-        let hosts: usize = pools.len();
+    pub fn stats(&self) -> PoolStats {
+        let total_connections: usize = self.pools.iter().map(|entry| entry.value().len()).sum();
+        let hosts: usize = self.pools.len();
 
         PoolStats {
             total_connections,
@@ -289,7 +286,7 @@ impl ConnectionPool {
             let mut ticker = tokio::time::interval(interval);
             loop {
                 ticker.tick().await;
-                self.cleanup().await;
+                self.cleanup();
             }
         })
     }
@@ -331,10 +328,10 @@ mod tests {
         let (stream, _) = create_test_connection().await;
 
         // Should not accept connections when disabled
-        assert!(!pool.put("test.com".to_string(), stream).await);
+        assert!(!pool.put("test.com".to_string(), stream));
 
         // Should not return connections when disabled
-        assert!(pool.get("test.com").await.is_none());
+        assert!(pool.get("test.com").is_none());
     }
 
     #[tokio::test]
@@ -349,14 +346,14 @@ mod tests {
         let (stream, _) = create_test_connection().await;
 
         // Put connection in pool
-        assert!(pool.put("test.com".to_string(), stream).await);
+        assert!(pool.put("test.com".to_string(), stream));
 
         // Get connection from pool
-        let retrieved = pool.get("test.com").await;
+        let retrieved = pool.get("test.com");
         assert!(retrieved.is_some());
 
         // Pool should be empty now
-        assert!(pool.get("test.com").await.is_none());
+        assert!(pool.get("test.com").is_none());
     }
 
     #[tokio::test]
@@ -373,11 +370,11 @@ mod tests {
         let (stream3, _) = create_test_connection().await;
 
         // Should accept first two
-        assert!(pool.put("test.com".to_string(), stream1).await);
-        assert!(pool.put("test.com".to_string(), stream2).await);
+        assert!(pool.put("test.com".to_string(), stream1));
+        assert!(pool.put("test.com".to_string(), stream2));
 
         // Should reject third (pool full)
-        assert!(!pool.put("test.com".to_string(), stream3).await);
+        assert!(!pool.put("test.com".to_string(), stream3));
     }
 
     #[tokio::test]
@@ -393,13 +390,13 @@ mod tests {
         let (stream, _) = create_test_connection().await;
 
         // Put connection in pool
-        assert!(pool.put("test.com".to_string(), stream).await);
+        assert!(pool.put("test.com".to_string(), stream));
 
         // Wait for TTL to expire
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         // Should not get expired connection
-        assert!(pool.get("test.com").await.is_none());
+        assert!(pool.get("test.com").is_none());
     }
 
     #[tokio::test]
@@ -415,16 +412,16 @@ mod tests {
         let (stream1, _) = create_test_connection().await;
         let (stream2, _) = create_test_connection().await;
 
-        pool.put("test1.com".to_string(), stream1).await;
-        pool.put("test2.com".to_string(), stream2).await;
+        pool.put("test1.com".to_string(), stream1);
+        pool.put("test2.com".to_string(), stream2);
 
         // Wait for expiration
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         // Cleanup should remove both
-        pool.cleanup().await;
+        pool.cleanup();
 
-        let stats = pool.stats().await;
+        let stats = pool.stats();
         assert_eq!(stats.total_connections, 0);
     }
 
@@ -439,10 +436,10 @@ mod tests {
         let (stream1, _) = create_test_connection().await;
         let (stream2, _) = create_test_connection().await;
 
-        pool.put("host1.com".to_string(), stream1).await;
-        pool.put("host2.com".to_string(), stream2).await;
+        pool.put("host1.com".to_string(), stream1);
+        pool.put("host2.com".to_string(), stream2);
 
-        let stats = pool.stats().await;
+        let stats = pool.stats();
         assert_eq!(stats.total_connections, 2);
         assert_eq!(stats.hosts, 2);
         assert!(stats.enabled);
