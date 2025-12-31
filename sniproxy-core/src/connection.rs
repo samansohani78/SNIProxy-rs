@@ -266,7 +266,25 @@ impl ConnectionHandler {
         match result {
             Ok(_) => info!(peer, duration_secs = %duration, "Connection completed"),
             Err(e) => {
-                error!(peer, error = %e, duration_secs = %duration, "Connection error");
+                let error_msg = e.to_string();
+
+                // Only log as ERROR if it's a real problem, not client misbehavior
+                let is_client_error = error_msg.contains("HTTP/2 frame")
+                    || error_msg.contains("timeout")
+                    || error_msg.contains("ClientHello")
+                    || error_msg.contains("Host header")
+                    || error_msg.contains("Unknown protocol")
+                    || error_msg.contains("Connection reset")
+                    || error_msg.contains("Broken pipe");
+
+                if is_client_error {
+                    // Client sent invalid/malformed request - debug level only
+                    debug!(peer, error = %error_msg, duration_secs = %duration, "Client request rejected");
+                } else {
+                    // Real error - log at error level
+                    error!(peer, error = %error_msg, duration_secs = %duration, "Connection error");
+                }
+
                 if let Some(ref metrics) = self.metrics {
                     metrics
                         .errors_total
@@ -516,8 +534,9 @@ impl ConnectionHandler {
                 (authority, frame_data)
             }
             Err(e) => {
-                warn!("Failed to extract :authority from HTTP/2 frame: {}", e);
-                return Err(Box::new(e));
+                // Don't log as error - many clients send malformed HTTP/2 probes
+                debug!("Invalid HTTP/2 frame from client: {}", e);
+                return Ok(()); // Close connection gracefully
             }
         };
 
