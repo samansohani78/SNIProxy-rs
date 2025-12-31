@@ -1,5 +1,6 @@
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use sniproxy_core::{extract_alpn, extract_sni};
+use std::hint::black_box;
 
 /// Helper to build a valid TLS ClientHello with SNI
 fn build_client_hello_with_sni(domain: &str) -> Vec<u8> {
