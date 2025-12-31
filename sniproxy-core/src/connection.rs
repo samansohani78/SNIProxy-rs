@@ -1,6 +1,7 @@
 use crate::SniError;
 use crate::connection_pool::{ConnectionPool, PoolConfig};
 use crate::http::{self, HttpError};
+use crate::metrics_cache::MetricLabelCache;
 use prometheus::{
     HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
 };
@@ -126,6 +127,7 @@ struct ConnectionMetrics {
     connection_duration: HistogramVec,
     errors_total: IntCounterVec,
     protocol_distribution: IntCounterVec,
+    label_cache: MetricLabelCache,
 }
 
 impl ConnectionMetrics {
@@ -204,6 +206,7 @@ impl ConnectionMetrics {
             connection_duration,
             errors_total,
             protocol_distribution,
+            label_cache: MetricLabelCache::new(),
         }
     }
 }
@@ -471,15 +474,15 @@ impl ConnectionHandler {
 
         // Setup metrics if enabled
         let metrics = self.metrics.as_ref().map(|m| {
-            let host_protocol = format!("{}-{}", host, protocol.as_str());
+            let label = m.label_cache.get_or_insert(&host, protocol.as_str());
             // Static string references for direction labels
             const TX: &str = "tx";
             const RX: &str = "rx";
             (
                 m.bytes_transferred
-                    .with_label_values(&[host_protocol.as_str(), TX]),
+                    .with_label_values(&[label.as_ref(), TX]),
                 m.bytes_transferred
-                    .with_label_values(&[host_protocol.as_str(), RX]),
+                    .with_label_values(&[label.as_ref(), RX]),
             )
         });
 
@@ -551,15 +554,15 @@ impl ConnectionHandler {
 
         // Setup metrics if enabled
         let metrics = self.metrics.as_ref().map(|m| {
-            let host_protocol = format!("{}-http2", host);
+            let label = m.label_cache.get_or_insert(&host, "http2");
             // Static string references for direction labels
             const TX: &str = "tx";
             const RX: &str = "rx";
             (
                 m.bytes_transferred
-                    .with_label_values(&[host_protocol.as_str(), TX]),
+                    .with_label_values(&[label.as_ref(), TX]),
                 m.bytes_transferred
-                    .with_label_values(&[host_protocol.as_str(), RX]),
+                    .with_label_values(&[label.as_ref(), RX]),
             )
         });
 
@@ -615,14 +618,15 @@ impl ConnectionHandler {
         // Setup metrics if enabled
         let metrics = self.metrics.as_ref().map(|m| {
             let protocol = if is_grpc { "grpc" } else { "http2" };
-            let host_protocol = format!("{}-{}", host, protocol);
-            let tx_label = String::from("tx");
-            let rx_label = String::from("rx");
+            let label = m.label_cache.get_or_insert(&host, protocol);
+            // Static string references for direction labels
+            const TX: &str = "tx";
+            const RX: &str = "rx";
             (
                 m.bytes_transferred
-                    .with_label_values(&[&host_protocol, &tx_label]),
+                    .with_label_values(&[label.as_ref(), TX]),
                 m.bytes_transferred
-                    .with_label_values(&[&host_protocol, &rx_label]),
+                    .with_label_values(&[label.as_ref(), RX]),
             )
         });
 
@@ -785,14 +789,15 @@ impl ConnectionHandler {
 
         // Setup metrics if enabled
         let metrics = self.metrics.as_ref().map(|m| {
-            let host_protocol = format!("{}-{}", sni, protocol.as_str());
-            let tx_label = String::from("tx");
-            let rx_label = String::from("rx");
+            let label = m.label_cache.get_or_insert(&sni, protocol.as_str());
+            // Static string references for direction labels
+            const TX: &str = "tx";
+            const RX: &str = "rx";
             (
                 m.bytes_transferred
-                    .with_label_values(&[&host_protocol, &tx_label]),
+                    .with_label_values(&[label.as_ref(), TX]),
                 m.bytes_transferred
-                    .with_label_values(&[&host_protocol, &rx_label]),
+                    .with_label_values(&[label.as_ref(), RX]),
             )
         });
 

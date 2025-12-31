@@ -1,5 +1,6 @@
 pub mod connection;
 pub mod connection_pool;
+pub mod metrics_cache;
 mod http;
 
 use connection::ConnectionHandler;
