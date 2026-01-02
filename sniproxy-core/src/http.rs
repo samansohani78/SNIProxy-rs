@@ -1,4 +1,6 @@
+use base64::{Engine as _, engine::general_purpose};
 use prometheus::IntCounter;
+use sha1::{Digest, Sha1};
 use std::error::Error;
 use std::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -14,6 +16,9 @@ const WEBSOCKET_UPGRADE: &str = "websocket";
 const SWITCHING_PROTOCOLS: &[u8] = b"HTTP/1.1 101";
 const CONTENT_TYPE_HEADER: &str = "content-type:";
 const GRPC_CONTENT_TYPE: &str = "application/grpc";
+
+// WebSocket handshake constant (RFC 6455)
+const WEBSOCKET_GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 // HTTP/2 frame type constants
 const HTTP2_FRAME_TYPE_HEADERS: u8 = 0x1;
@@ -206,6 +211,64 @@ pub async fn tunnel_websocket(
     }
 
     Ok(())
+}
+
+/// Validate WebSocket upgrade and generate accept key
+///
+/// Implements RFC 6455 WebSocket handshake validation
+/// by computing SHA-1 hash of the Sec-WebSocket-Key concatenated with
+/// the magic GUID and Base64 encoding the result.
+///
+/// # Arguments
+/// * `headers` - The HTTP request headers as a string
+///
+/// # Returns
+/// * `Ok(String)` - The computed Sec-WebSocket-Accept value
+/// * `Err` - If the Sec-WebSocket-Key header is missing or invalid
+///
+/// # Example
+/// ```ignore
+/// let headers = "GET / HTTP/1.1\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+/// let accept = validate_websocket_upgrade(headers).unwrap();
+/// assert_eq!(accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+/// ```
+#[allow(dead_code)] // Reserved for future WebSocket handshake validation
+pub fn validate_websocket_upgrade(headers: &str) -> Result<String, Box<dyn std::error::Error>> {
+    // Extract Sec-WebSocket-Key header
+    let ws_key = extract_websocket_key(headers)?;
+
+    // Compute Sec-WebSocket-Accept
+    let mut hasher = Sha1::new();
+    hasher.update(ws_key.as_bytes());
+    hasher.update(WEBSOCKET_GUID.as_bytes());
+    let hash = hasher.finalize();
+
+    let accept_key = general_purpose::STANDARD.encode(hash);
+
+    Ok(accept_key)
+}
+
+/// Extract Sec-WebSocket-Key from headers
+///
+/// Searches for the Sec-WebSocket-Key header in HTTP request headers
+/// and returns its value.
+///
+/// # Arguments
+/// * `headers` - The HTTP request headers as a string
+///
+/// # Returns
+/// * `Ok(String)` - The Sec-WebSocket-Key value
+/// * `Err` - If the header is not found
+#[allow(dead_code)] // Reserved for future WebSocket handshake validation
+fn extract_websocket_key(headers: &str) -> Result<String, Box<dyn std::error::Error>> {
+    for line in headers.lines() {
+        if line.to_lowercase().starts_with("sec-websocket-key:")
+            && let Some(key) = line.split(':').nth(1)
+        {
+            return Ok(key.trim().to_string());
+        }
+    }
+    Err("Missing Sec-WebSocket-Key header".into())
 }
 
 /// Parses HTTP/2 frames to detect gRPC traffic
@@ -556,5 +619,66 @@ mod tests {
         let io_error = io::Error::new(io::ErrorKind::ConnectionRefused, "test");
         let http_error: HttpError = io_error.into();
         assert!(matches!(http_error, HttpError::Io(_)));
+    }
+
+    // WebSocket validation tests
+    #[test]
+    fn test_websocket_key_validation() {
+        let headers = "GET / HTTP/1.1\r\n\
+                       Host: example.com\r\n\
+                       Upgrade: websocket\r\n\
+                       Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+                       \r\n";
+
+        let accept = validate_websocket_upgrade(headers).unwrap();
+        assert_eq!(accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+    }
+
+    #[test]
+    fn test_websocket_key_extraction() {
+        let headers = "GET / HTTP/1.1\r\n\
+                       Host: example.com\r\n\
+                       Sec-WebSocket-Key: test-key-123\r\n\
+                       \r\n";
+
+        let key = extract_websocket_key(headers).unwrap();
+        assert_eq!(key, "test-key-123");
+    }
+
+    #[test]
+    fn test_websocket_key_case_insensitive() {
+        let headers = "GET / HTTP/1.1\r\n\
+                       Host: example.com\r\n\
+                       SEC-WEBSOCKET-KEY: test-key-456\r\n\
+                       \r\n";
+
+        let key = extract_websocket_key(headers).unwrap();
+        assert_eq!(key, "test-key-456");
+    }
+
+    #[test]
+    fn test_websocket_key_missing() {
+        let headers = "GET / HTTP/1.1\r\n\
+                       Host: example.com\r\n\
+                       Upgrade: websocket\r\n\
+                       \r\n";
+
+        let result = extract_websocket_key(headers);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_websocket_accept_rfc_example() {
+        // This is the example from RFC 6455 Section 1.3
+        let headers = "GET /chat HTTP/1.1\r\n\
+                       Host: server.example.com\r\n\
+                       Upgrade: websocket\r\n\
+                       Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+                       Sec-WebSocket-Version: 13\r\n\
+                       \r\n";
+
+        let accept = validate_websocket_upgrade(headers).unwrap();
+        // Expected value from RFC 6455
+        assert_eq!(accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
     }
 }
