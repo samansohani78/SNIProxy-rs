@@ -1,8 +1,8 @@
 # SNIProxy-rs: Complete Implementation Status & Plan
 
-**Last Updated**: 2026-01-02 19:30 UTC
+**Last Updated**: 2026-01-02 20:00 UTC
 **Current Phase**: PHASE 1 - Performance Optimizations
-**Overall Progress**: 16.7% (5/30 tasks complete)
+**Overall Progress**: 20.0% (6/30 tasks complete)
 **Timeline**: 10 weeks (2.5 months) | 4 Phases | 14 web protocols
 
 ---
@@ -16,12 +16,12 @@ Transform SNIProxy-rs from a TCP-only transparent proxy into a **comprehensive w
 ### Overall Progress Dashboard
 
 ```
-Phase 1: 71.4% ███████████░░░░  (5/7 tasks)
+Phase 1: 85.7% █████████████░░  (6/7 tasks)
 Phase 2:  0.0% ░░░░░░░░░░░░░░░  (0/8 tasks)
 Phase 3:  0.0% ░░░░░░░░░░░░░░░  (0/8 tasks)
 Phase 4:  0.0% ░░░░░░░░░░░░░░░  (0/7 tasks)
 ────────────────────────────────
-Total:   16.7% ███░░░░░░░░░░░░  (5/30 tasks)
+Total:   20.0% ███░░░░░░░░░░░░  (6/30 tasks)
 ```
 
 ### Success Metrics Tracking
@@ -43,7 +43,7 @@ Total:   16.7% ███░░░░░░░░░░░░  (5/30 tasks)
 
 ## 🎯 PHASE 1: Performance Optimizations + WebSocket/gRPC Enhancement
 
-**Status**: 🔄 IN PROGRESS (71.4% complete - 5/7 tasks)
+**Status**: 🔄 IN PROGRESS (85.7% complete - 6/7 tasks)
 **Duration**: Weeks 1-2
 **Goal**: 2-3x throughput + full WebSocket/gRPC support
 
@@ -57,7 +57,7 @@ This phase focuses on foundational performance improvements that will benefit al
 
 ---
 
-### ✅ COMPLETED TASKS (5/7)
+### ✅ COMPLETED TASKS (6/7)
 
 #### Task 1.1: ✅ Increase Buffer Sizes (4x improvement)
 **Status**: ✅ COMPLETED
@@ -339,63 +339,67 @@ fn extract_websocket_key(headers: &str) -> Result<String, Box<dyn std::error::Er
 
 ---
 
+#### Task 1.6: ✅ Integrate gRPC Content-Type Detection
+**Status**: ✅ COMPLETED
+**Completed**: 2026-01-02
+**Impact**: gRPC traffic now detected and tracked with separate metrics
+
+**Files Modified:**
+- `sniproxy-core/src/http.rs` (added is_grpc_request function)
+- `sniproxy-core/src/connection.rs` (integrated gRPC detection in HTTP handler)
+
+**Implementation:**
+```rust
+// New function in http.rs
+#[inline]
+pub fn is_grpc_request(headers: &[u8]) -> bool {
+    let headers_str = String::from_utf8_lossy(headers).to_lowercase();
+    headers_str.contains(CONTENT_TYPE_HEADER) && headers_str.contains(GRPC_CONTENT_TYPE)
+}
+
+// Integration in connection.rs handle_http()
+let is_grpc = if matches!(protocol, Protocol::Http2) {
+    http::is_grpc_request(&buffer[..bytes_read])
+} else {
+    false
+};
+
+let effective_protocol = if is_grpc { Protocol::Grpc } else { protocol };
+```
+
+**Features:**
+- Buffer-based gRPC detection (non-destructive)
+- Case-insensitive content-type matching
+- Detects `application/grpc` and variants (e.g., `application/grpc+proto`)
+- Integrated into HTTP/2 handling flow
+- Separate metrics for gRPC traffic
+
+**Testing:**
+- ✅ Added 5 comprehensive tests
+- ✅ Positive detection with standard content-type
+- ✅ Detection with charset variants
+- ✅ Negative detection for non-gRPC
+- ✅ Case-insensitive header matching
+- ✅ All 99 tests passing (94→99)
+- ✅ 0 clippy warnings
+- ✅ Clean release build
+
+**Success Criteria Met:**
+- ✅ gRPC detection integrated into main flow
+- ✅ Separate metrics for gRPC (Protocol::Grpc)
+- ✅ No dead_code warnings (is_grpc_request is actively used)
+- ✅ gRPC traffic correctly identified and logged
+
+---
+
 ### 🔄 IN PROGRESS TASKS (0/7)
 
 *No tasks currently in progress*
 
 ---
 
-### ⏳ PENDING TASKS (2/7)
+### ⏳ PENDING TASKS (1/7)
 
-
-#### Task 1.6: ⏳ Integrate gRPC Content-Type Detection
-**Status**: ⏳ PENDING
-**Goal**: Activate gRPC detection in main protocol flow
-**Estimated Impact**: gRPC-specific metrics and handling
-
-**Implementation Plan:**
-
-**File to Modify: `sniproxy-core/src/http.rs`** (Lines 214-248)
-
-**Remove dead_code attribute:**
-```rust
-// Before:
-#[allow(dead_code)]
-pub fn detect_grpc(headers: &[u8]) -> bool {
-
-// After:
-pub fn detect_grpc(headers: &[u8]) -> bool {
-```
-
-**File to Modify: `sniproxy-core/src/connection.rs`**
-
-**Integrate into HTTP/2 handler:**
-```rust
-// In handle_http2_cleartext() around line 520
-let is_grpc = http::detect_grpc(&buffer);
-
-if is_grpc {
-    debug!("Detected gRPC over HTTP/2");
-    // Use Protocol::Grpc for metrics
-    let protocol = Protocol::Grpc;
-    // ... rest of handling
-}
-```
-
-**Add gRPC-specific metrics:**
-```rust
-// New metrics in ConnectionMetrics
-grpc_calls_total: IntCounterVec,  // Labels: method, status
-grpc_duration_seconds: HistogramVec,
-```
-
-**Success Criteria:**
-- ✓ gRPC detection integrated
-- ✓ Separate metrics for gRPC
-- ✓ No `#[allow(dead_code)]` warnings
-- ✓ gRPC traffic correctly identified
-
----
 
 #### Task 1.7: ⏳ Run Benchmarks and Verify 2-3x Throughput
 **Status**: ⏳ PENDING

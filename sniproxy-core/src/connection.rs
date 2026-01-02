@@ -458,9 +458,19 @@ impl ConnectionHandler {
             Err(e) => return Err(Box::new(e)),
         };
 
+        // Detect gRPC if this is an HTTP/2 connection
+        let is_grpc = if matches!(protocol, Protocol::Http2) {
+            http::is_grpc_request(&buffer[..bytes_read])
+        } else {
+            false
+        };
+
+        let effective_protocol = if is_grpc { Protocol::Grpc } else { protocol };
+
         debug!(
             host,
-            protocol = protocol.as_str(),
+            protocol = effective_protocol.as_str(),
+            is_grpc,
             "Extracted Host from HTTP headers"
         );
 
@@ -474,7 +484,9 @@ impl ConnectionHandler {
 
         // Setup metrics if enabled
         let metrics = self.metrics.as_ref().map(|m| {
-            let label = m.label_cache.get_or_insert(&host, protocol.as_str());
+            let label = m
+                .label_cache
+                .get_or_insert(&host, effective_protocol.as_str());
             // Static string references for direction labels
             const TX: &str = "tx";
             const RX: &str = "rx";
@@ -491,11 +503,11 @@ impl ConnectionHandler {
                 (host[..colon_pos].to_string(), p)
             } else {
                 // Not a valid port, treat entire string as hostname
-                (host.clone(), protocol.default_port())
+                (host.clone(), effective_protocol.default_port())
             }
         } else {
             // No port specified, use default
-            (host.clone(), protocol.default_port())
+            (host.clone(), effective_protocol.default_port())
         };
 
         // Tunnel the connection

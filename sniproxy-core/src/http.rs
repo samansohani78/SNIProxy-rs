@@ -271,10 +271,37 @@ fn extract_websocket_key(headers: &str) -> Result<String, Box<dyn std::error::Er
     Err("Missing Sec-WebSocket-Key header".into())
 }
 
-/// Parses HTTP/2 frames to detect gRPC traffic
-// TODO: Integrate gRPC detection into connection handler
-// This function is currently unused but kept for future implementation
-#[allow(dead_code)]
+/// Detect gRPC from HTTP headers buffer
+///
+/// Checks if the HTTP request contains gRPC content-type header.
+/// This is a simpler version that works with buffers instead of streams.
+///
+/// # Arguments
+/// * `headers` - The HTTP headers as bytes
+///
+/// # Returns
+/// * `true` if gRPC content-type is detected
+/// * `false` otherwise
+#[inline]
+pub fn is_grpc_request(headers: &[u8]) -> bool {
+    let headers_str = String::from_utf8_lossy(headers).to_lowercase();
+    headers_str.contains(CONTENT_TYPE_HEADER) && headers_str.contains(GRPC_CONTENT_TYPE)
+}
+
+/// Parses HTTP/2 frames to detect gRPC traffic from a stream
+///
+/// This function reads HTTP/2 frames from a TCP stream to detect gRPC traffic.
+/// Note: This consumes data from the stream, so use carefully.
+/// For most cases, use `is_grpc_request()` instead which works with buffers.
+///
+/// # Arguments
+/// * `stream` - The TCP stream to read from
+///
+/// # Returns
+/// * `Ok(true)` if gRPC is detected
+/// * `Ok(false)` if not gRPC
+/// * `Err` on read errors or timeout
+#[allow(dead_code)] // Reserved for future stream-based gRPC detection
 pub async fn detect_grpc(stream: &mut TcpStream) -> Result<bool, HttpError> {
     // Buffer for reading HTTP/2 frame header (9 bytes)
     let mut frame_header = [0u8; 9];
@@ -680,5 +707,55 @@ mod tests {
         let accept = validate_websocket_upgrade(headers).unwrap();
         // Expected value from RFC 6455
         assert_eq!(accept, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+    }
+
+    // gRPC detection tests
+    #[test]
+    fn test_grpc_detection_positive() {
+        let headers = b"POST /grpc.Service/Method HTTP/2.0\r\n\
+                        Content-Type: application/grpc\r\n\
+                        Host: example.com\r\n\
+                        \r\n";
+
+        assert!(is_grpc_request(headers));
+    }
+
+    #[test]
+    fn test_grpc_detection_with_charset() {
+        let headers = b"POST /grpc.Service/Method HTTP/2.0\r\n\
+                        Content-Type: application/grpc+proto\r\n\
+                        Host: example.com\r\n\
+                        \r\n";
+
+        assert!(is_grpc_request(headers));
+    }
+
+    #[test]
+    fn test_grpc_detection_negative() {
+        let headers = b"GET / HTTP/2.0\r\n\
+                        Content-Type: text/html\r\n\
+                        Host: example.com\r\n\
+                        \r\n";
+
+        assert!(!is_grpc_request(headers));
+    }
+
+    #[test]
+    fn test_grpc_detection_case_insensitive() {
+        let headers = b"POST /grpc.Service/Method HTTP/2.0\r\n\
+                        CONTENT-TYPE: APPLICATION/GRPC\r\n\
+                        Host: example.com\r\n\
+                        \r\n";
+
+        assert!(is_grpc_request(headers));
+    }
+
+    #[test]
+    fn test_grpc_detection_no_content_type() {
+        let headers = b"POST /grpc.Service/Method HTTP/2.0\r\n\
+                        Host: example.com\r\n\
+                        \r\n";
+
+        assert!(!is_grpc_request(headers));
     }
 }
