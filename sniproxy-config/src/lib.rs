@@ -6,7 +6,7 @@ use std::path::Path;
 ///
 /// This structure defines all configuration options for the proxy server including
 /// listen addresses, timeout settings, metrics configuration, and domain allowlist.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// List of addresses to listen on (e.g., "0.0.0.0:443", "[::]:443")
     pub listen_addrs: Vec<String>,
@@ -25,6 +25,18 @@ pub struct Config {
     /// Connection pooling configuration (optional)
     #[serde(default)]
     pub connection_pool: Option<ConnectionPool>,
+    /// Protocol routing configuration for web protocols (optional)
+    #[serde(default)]
+    pub protocol_routing: Option<ProtocolRouting>,
+    /// UDP listener addresses for HTTP/3 and QUIC (optional)
+    #[serde(default)]
+    pub udp_listen_addrs: Option<Vec<String>>,
+    /// QUIC protocol configuration (optional)
+    #[serde(default)]
+    pub quic_config: Option<QuicConfig>,
+    /// HTTP/3 configuration (optional)
+    #[serde(default)]
+    pub http3_config: Option<Http3Config>,
 }
 
 /// Connection pooling configuration.
@@ -80,7 +92,7 @@ impl Default for ConnectionPool {
 }
 
 /// Timeout settings for proxy operations (all values in seconds).
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Timeouts {
     /// Maximum time to establish backend connection (default: 10s)
     pub connect: u64,
@@ -91,7 +103,7 @@ pub struct Timeouts {
 }
 
 /// Prometheus metrics server configuration.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Metrics {
     /// Whether to enable metrics collection
     pub enabled: bool,
@@ -200,6 +212,252 @@ pub fn matches_allowlist_pattern(hostname: &str, pattern: &str) -> bool {
     } else {
         false
     }
+}
+
+/// Protocol routing configuration for web protocols
+///
+/// Optional configuration to enable/disable specific web protocol detection
+/// and configure protocol-specific settings.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ProtocolRouting {
+    /// Socket.IO configuration
+    #[serde(default)]
+    pub socketio: SocketIOConfig,
+    /// JSON-RPC configuration
+    #[serde(default)]
+    pub jsonrpc: JsonRpcConfig,
+    /// XML-RPC configuration
+    #[serde(default)]
+    pub xmlrpc: XmlRpcConfig,
+    /// SOAP configuration
+    #[serde(default)]
+    pub soap: SoapConfig,
+    /// Generic RPC configuration
+    #[serde(default)]
+    pub rpc: RpcConfig,
+}
+
+/// Socket.IO protocol configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SocketIOConfig {
+    /// Enable Socket.IO detection (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Extract namespace from path (default: true)
+    #[serde(default = "default_true")]
+    pub extract_from_path: bool,
+    /// Polling timeout in seconds (default: 30)
+    #[serde(default = "default_polling_timeout")]
+    pub polling_timeout: u64,
+}
+
+impl Default for SocketIOConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            extract_from_path: true,
+            polling_timeout: 30,
+        }
+    }
+}
+
+/// JSON-RPC protocol configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct JsonRpcConfig {
+    /// Enable JSON-RPC detection (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Validate batch requests (default: true)
+    #[serde(default = "default_true")]
+    pub validate_batch: bool,
+    /// Maximum batch size (default: 100)
+    #[serde(default = "default_max_batch_size")]
+    pub max_batch_size: usize,
+}
+
+impl Default for JsonRpcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            validate_batch: true,
+            max_batch_size: 100,
+        }
+    }
+}
+
+/// XML-RPC protocol configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct XmlRpcConfig {
+    /// Enable XML-RPC detection (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Validate XML structure (default: true)
+    #[serde(default = "default_true")]
+    pub validate_xml: bool,
+}
+
+impl Default for XmlRpcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            validate_xml: true,
+        }
+    }
+}
+
+/// SOAP protocol configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SoapConfig {
+    /// Enable SOAP detection (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Extract SOAPAction from headers (default: true)
+    #[serde(default = "default_true")]
+    pub extract_from_action: bool,
+    /// Validate WSDL (default: false, reserved for future use)
+    #[serde(default = "default_false")]
+    pub validate_wsdl: bool,
+}
+
+impl Default for SoapConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            extract_from_action: true,
+            validate_wsdl: false,
+        }
+    }
+}
+
+/// Generic RPC protocol configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RpcConfig {
+    /// Enable RPC detection (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Detect from path patterns (default: true)
+    #[serde(default = "default_true")]
+    pub detect_from_path: bool,
+}
+
+impl Default for RpcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            detect_from_path: true,
+        }
+    }
+}
+
+// Default value helpers
+fn default_true() -> bool {
+    true
+}
+
+fn default_false() -> bool {
+    false
+}
+
+fn default_polling_timeout() -> u64 {
+    30
+}
+
+fn default_max_batch_size() -> usize {
+    100
+}
+
+/// QUIC protocol configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct QuicConfig {
+    /// Enable QUIC support (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Maximum concurrent bidirectional streams per connection (default: 100)
+    #[serde(default = "default_max_concurrent_streams")]
+    pub max_concurrent_streams: u32,
+    /// Maximum idle timeout in seconds (default: 60)
+    #[serde(default = "default_max_idle_timeout")]
+    pub max_idle_timeout: u64,
+    /// Keep-alive interval in seconds (default: 15)
+    #[serde(default = "default_keep_alive_interval")]
+    pub keep_alive_interval: u64,
+    /// Maximum datagram size in bytes (default: 1350 for MTU safety)
+    #[serde(default = "default_max_datagram_size")]
+    pub max_datagram_size: usize,
+    /// Enable 0-RTT resumption (default: true)
+    #[serde(default = "default_true")]
+    pub enable_0rtt: bool,
+}
+
+impl Default for QuicConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_concurrent_streams: default_max_concurrent_streams(),
+            max_idle_timeout: default_max_idle_timeout(),
+            keep_alive_interval: default_keep_alive_interval(),
+            max_datagram_size: default_max_datagram_size(),
+            enable_0rtt: true,
+        }
+    }
+}
+
+/// HTTP/3 protocol configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Http3Config {
+    /// Enable HTTP/3 support (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Maximum HTTP header field section size in bytes (default: 8192)
+    #[serde(default = "default_max_field_section_size")]
+    pub max_field_section_size: usize,
+    /// QPACK maximum table capacity (default: 4096)
+    #[serde(default = "default_qpack_max_table_capacity")]
+    pub qpack_max_table_capacity: usize,
+    /// QPACK maximum blocked streams (default: 16)
+    #[serde(default = "default_qpack_blocked_streams")]
+    pub qpack_blocked_streams: u16,
+}
+
+impl Default for Http3Config {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_field_section_size: default_max_field_section_size(),
+            qpack_max_table_capacity: default_qpack_max_table_capacity(),
+            qpack_blocked_streams: default_qpack_blocked_streams(),
+        }
+    }
+}
+
+// QUIC default value helpers
+fn default_max_concurrent_streams() -> u32 {
+    100
+}
+
+fn default_max_idle_timeout() -> u64 {
+    60
+}
+
+fn default_keep_alive_interval() -> u64 {
+    15
+}
+
+fn default_max_datagram_size() -> usize {
+    1350
+}
+
+// HTTP/3 default value helpers
+fn default_max_field_section_size() -> usize {
+    8192
+}
+
+fn default_qpack_max_table_capacity() -> usize {
+    4096
+}
+
+fn default_qpack_blocked_streams() -> u16 {
+    16
 }
 
 #[cfg(test)]

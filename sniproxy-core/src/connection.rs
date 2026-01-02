@@ -2,6 +2,7 @@ use crate::SniError;
 use crate::connection_pool::{ConnectionPool, PoolConfig};
 use crate::http::{self, HttpError};
 use crate::metrics_cache::MetricLabelCache;
+use crate::protocols;
 use prometheus::{
     HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
 };
@@ -130,6 +131,93 @@ impl Protocol {
                 | Protocol::Rpc
         )
     }
+}
+
+/// Detect specific web protocols from HTTP request buffer
+///
+/// This function examines the HTTP request to identify specific web protocols
+/// like Socket.IO, JSON-RPC, XML-RPC, SOAP, and generic RPC.
+///
+/// # Arguments
+///
+/// * `buffer` - The HTTP request buffer containing headers and possibly body
+/// * `base_protocol` - The base HTTP protocol detected (Http10, Http11, Http2, etc.)
+///
+/// # Returns
+///
+/// Returns the detected protocol or the base protocol if no specific match
+fn detect_web_protocol(
+    buffer: &[u8],
+    base_protocol: Protocol,
+) -> Result<Protocol, Box<dyn std::error::Error>> {
+    // Convert buffer to string for header inspection
+    let request_str = String::from_utf8_lossy(buffer);
+
+    // 1. Check for Socket.IO (path-based detection)
+    if protocols::socketio::detect_socketio(&request_str) {
+        return Ok(Protocol::SocketIO);
+    }
+
+    // 2. Check for generic RPC patterns in request path
+    if protocols::rpc::detect_rpc(&request_str) {
+        return Ok(Protocol::Rpc);
+    }
+
+    // 3. Check for gRPC if this is HTTP/2
+    if matches!(base_protocol, Protocol::Http2) && http::is_grpc_request(buffer) {
+        return Ok(Protocol::Grpc);
+    }
+
+    // 4. For POST requests, check body-based protocols (SOAP, JSON-RPC, XML-RPC)
+    if request_str.to_lowercase().starts_with("post ") {
+        // Find the end of headers (double CRLF)
+        if let Some(body_start) = find_body_start(buffer) {
+            let body = &buffer[body_start..];
+
+            // Check SOAP (can use headers or body)
+            if protocols::soap::detect_soap(&request_str, body) {
+                return Ok(Protocol::Soap);
+            }
+
+            // Check JSON-RPC (body-based)
+            if !body.is_empty() && protocols::jsonrpc::detect_jsonrpc(body) {
+                return Ok(Protocol::JsonRpc);
+            }
+
+            // Check XML-RPC (body-based)
+            if !body.is_empty() && protocols::xmlrpc::detect_xmlrpc(body) {
+                return Ok(Protocol::XmlRpc);
+            }
+        }
+    }
+
+    // No specific protocol detected, return base protocol
+    Ok(base_protocol)
+}
+
+/// Find the start of the HTTP body (after headers)
+///
+/// Returns the byte position where the body starts (after \r\n\r\n or \n\n)
+fn find_body_start(buffer: &[u8]) -> Option<usize> {
+    // Look for double CRLF (\r\n\r\n)
+    for i in 0..buffer.len().saturating_sub(3) {
+        if buffer[i] == b'\r'
+            && buffer[i + 1] == b'\n'
+            && buffer[i + 2] == b'\r'
+            && buffer[i + 3] == b'\n'
+        {
+            return Some(i + 4);
+        }
+    }
+
+    // Fallback: look for double LF (\n\n)
+    for i in 0..buffer.len().saturating_sub(1) {
+        if buffer[i] == b'\n' && buffer[i + 1] == b'\n' {
+            return Some(i + 2);
+        }
+    }
+
+    None
 }
 
 #[derive(Clone)]
@@ -484,20 +572,13 @@ impl ConnectionHandler {
             Err(e) => return Err(Box::new(e)),
         };
 
-        // Detect gRPC if this is an HTTP/2 connection
-        let is_grpc = if matches!(protocol, Protocol::Http2) {
-            http::is_grpc_request(&buffer[..bytes_read])
-        } else {
-            false
-        };
-
-        let effective_protocol = if is_grpc { Protocol::Grpc } else { protocol };
+        // Detect specific web protocols from the request
+        let effective_protocol = detect_web_protocol(&buffer[..bytes_read], protocol)?;
 
         debug!(
             host,
             protocol = effective_protocol.as_str(),
-            is_grpc,
-            "Extracted Host from HTTP headers"
+            "Detected web protocol from HTTP request"
         );
 
         // Check allowlist if configured

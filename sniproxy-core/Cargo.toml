@@ -21,8 +21,14 @@ base64 = { workspace = true }
 quick-xml = { workspace = true }
 roxmltree = { workspace = true }
 serde_json = { workspace = true }
+# Phase 3 dependencies
+quinn = { workspace = true }
+rustls = { workspace = true }
+h3 = { workspace = true }
+h3-quinn = { workspace = true }
 
 [dev-dependencies]
+rcgen = { workspace = true }
 criterion = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tonic = { workspace = true }

@@ -3,6 +3,8 @@ pub mod connection_pool;
 mod http;
 pub mod metrics_cache;
 pub mod protocols;
+pub mod quic_handler;
+pub mod udp_connection;
 
 use connection::ConnectionHandler;
 use futures::StreamExt;
@@ -13,11 +15,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, UdpSocket};
 use tokio::signal;
 use tokio::sync::{Semaphore, broadcast};
 use tokio::time::timeout;
 use tracing::{error, info, warn};
+
+use crate::udp_connection::UdpConnectionHandler;
 
 /// Runs the SNI proxy server with the given configuration.
 ///
@@ -73,6 +77,30 @@ pub async fn run_proxy(
         let addr: SocketAddr = addr_str.parse()?;
         info!("Starting listener on {}", addr);
         listeners.push(TcpListener::bind(addr).await?);
+    }
+
+    // UDP listeners for HTTP/3 and QUIC (if configured)
+    let mut udp_tasks = Vec::new();
+    if let Some(ref udp_addrs) = config.udp_listen_addrs {
+        let udp_handler = UdpConnectionHandler::new((*config).clone(), registry.as_ref());
+
+        for addr_str in udp_addrs {
+            let addr: SocketAddr = addr_str.parse()?;
+            info!("Starting UDP listener on {}", addr);
+
+            let socket = UdpSocket::bind(addr).await?;
+            let handler = udp_handler.clone();
+
+            let udp_task = tokio::spawn(async move {
+                if let Err(e) = handler.run(socket).await {
+                    error!("UDP handler error on {}: {}", addr, e);
+                }
+            });
+
+            udp_tasks.push(udp_task);
+        }
+
+        info!("Started {} UDP listener(s) for QUIC/HTTP3", udp_addrs.len());
     }
 
     info!("Proxy started, waiting for connections...");
@@ -140,31 +168,39 @@ pub async fn run_proxy(
     // Graceful shutdown: wait for active connections to complete
     let active_count = active_connections.load(Ordering::Relaxed);
     info!(
-        "Shutting down proxy, waiting for {} active connections to complete",
+        "Shutting down proxy, waiting for {} active TCP connections to complete",
         active_count
     );
 
     let shutdown_timeout_secs = config.shutdown_timeout.unwrap_or(30);
     let shutdown_timeout_duration = Duration::from_secs(shutdown_timeout_secs);
 
-    // Wait for all connection tasks to complete with timeout
-    let shutdown_result = timeout(shutdown_timeout_duration, async {
+    // Wait for all TCP connection tasks to complete with timeout
+    let tcp_shutdown_result = timeout(shutdown_timeout_duration, async {
         for handle in connection_handles {
             let _ = handle.await;
         }
     })
     .await;
 
-    match shutdown_result {
+    match tcp_shutdown_result {
         Ok(_) => {
-            info!("All connections completed gracefully");
+            info!("All TCP connections completed gracefully");
         }
         Err(_) => {
             let remaining = active_connections.load(Ordering::Relaxed);
             warn!(
-                "Shutdown timeout ({} seconds) reached, {} connections may be incomplete",
+                "TCP shutdown timeout ({} seconds) reached, {} connections may be incomplete",
                 shutdown_timeout_secs, remaining
             );
+        }
+    }
+
+    // Abort UDP tasks (they run indefinitely until stopped)
+    if !udp_tasks.is_empty() {
+        info!("Stopping {} UDP listener(s)", udp_tasks.len());
+        for task in udp_tasks {
+            task.abort();
         }
     }
 

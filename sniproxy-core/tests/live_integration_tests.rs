@@ -35,6 +35,10 @@ fn create_test_config(proxy_port: u16, metrics_port: u16) -> Config {
         max_connections: Some(1000),
         shutdown_timeout: Some(10),
         connection_pool: None,
+        protocol_routing: None,
+        udp_listen_addrs: None,
+        quic_config: None,
+        http3_config: None,
     }
 }
 
@@ -141,6 +145,10 @@ async fn test_multiple_listen_addresses() {
         max_connections: Some(1000),
         shutdown_timeout: Some(10),
         connection_pool: None,
+        protocol_routing: None,
+        udp_listen_addrs: None,
+        quic_config: None,
+        http3_config: None,
     };
 
     let proxy_handle = tokio::spawn(async move {
@@ -214,6 +222,10 @@ async fn test_proxy_with_allowlist() {
         max_connections: Some(1000),
         shutdown_timeout: Some(10),
         connection_pool: None,
+        protocol_routing: None,
+        udp_listen_addrs: None,
+        quic_config: None,
+        http3_config: None,
     };
 
     let proxy_handle = tokio::spawn(async move {
