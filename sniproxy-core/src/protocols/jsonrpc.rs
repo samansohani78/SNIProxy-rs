@@ -44,7 +44,9 @@ pub fn detect_jsonrpc(body: &[u8]) -> bool {
         }
 
         // Batch requests (array)
-        if json.is_array() && let Some(arr) = json.as_array() {
+        if json.is_array()
+            && let Some(arr) = json.as_array()
+        {
             return arr
                 .iter()
                 .any(|v| v.get("jsonrpc").is_some() || v.get("method").is_some());

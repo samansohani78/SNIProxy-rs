@@ -53,7 +53,9 @@ pub fn extract_method(body: &[u8]) -> Result<String, Box<dyn std::error::Error>>
     let doc = Document::parse(text)?;
 
     for node in doc.descendants() {
-        if node.tag_name().name() == "methodName" && let Some(text) = node.text() {
+        if node.tag_name().name() == "methodName"
+            && let Some(text) = node.text()
+        {
             return Ok(text.to_string());
         }
     }
