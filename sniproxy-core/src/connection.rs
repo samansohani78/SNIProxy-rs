@@ -55,6 +55,11 @@ enum Protocol {
     Http3,     // HTTP/3 (QUIC)
     WebSocket, // WebSocket over HTTP
     Grpc,      // gRPC over HTTP/2
+    SocketIO,  // Socket.IO over HTTP/WebSocket
+    JsonRpc,   // JSON-RPC 1.0/2.0
+    XmlRpc,    // XML-RPC
+    Soap,      // SOAP 1.1/1.2
+    Rpc,       // Generic RPC over HTTP
     Tls,       // TLS without protocol identification
     Unknown,   // Unknown protocol
 }
@@ -70,6 +75,11 @@ impl Protocol {
             Protocol::Http3 => "http3",
             Protocol::WebSocket => "websocket",
             Protocol::Grpc => "grpc",
+            Protocol::SocketIO => "socket.io",
+            Protocol::JsonRpc => "json-rpc",
+            Protocol::XmlRpc => "xml-rpc",
+            Protocol::Soap => "soap",
+            Protocol::Rpc => "rpc",
             Protocol::Tls => "tls",
             Protocol::Unknown => "unknown",
         }
@@ -82,6 +92,11 @@ impl Protocol {
             Protocol::Http10 | Protocol::Http11 | Protocol::WebSocket => 80,
             Protocol::Http2 | Protocol::Grpc | Protocol::Tls => 443,
             Protocol::Http3 => 443,
+            Protocol::SocketIO
+            | Protocol::JsonRpc
+            | Protocol::XmlRpc
+            | Protocol::Soap
+            | Protocol::Rpc => 80,
             Protocol::Unknown => 0,
         }
     }
@@ -108,6 +123,11 @@ impl Protocol {
                 | Protocol::Http3
                 | Protocol::WebSocket
                 | Protocol::Grpc
+                | Protocol::SocketIO
+                | Protocol::JsonRpc
+                | Protocol::XmlRpc
+                | Protocol::Soap
+                | Protocol::Rpc
         )
     }
 }
@@ -362,6 +382,12 @@ impl ConnectionHandler {
             }
             Protocol::WebSocket => self.handle_http(client, protocol).await?,
             Protocol::Grpc => self.handle_http2(client, true).await?,
+            // Phase 2: Web Protocol Support - All HTTP-based protocols
+            Protocol::SocketIO
+            | Protocol::JsonRpc
+            | Protocol::XmlRpc
+            | Protocol::Soap
+            | Protocol::Rpc => self.handle_http(client, protocol).await?,
             Protocol::Tls => self.handle_https(client, None).await?,
             Protocol::Http3 => {
                 // HTTP/3 requires QUIC which we'd handle differently

@@ -36,3 +36,7 @@ h2 = "0.4"
 dashmap = "6.1"      # Lock-free concurrent HashMap
 sha1 = "0.10"        # WebSocket handshake hash
 base64 = "0.22"      # WebSocket accept encoding
+# Phase 2 dependencies
+quick-xml = "0.38"   # SOAP/XML-RPC parsing
+roxmltree = "0.21"   # Fast XML parsing
+serde_json = "1.0"   # JSON-RPC parsing
