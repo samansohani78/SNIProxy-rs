@@ -32,3 +32,11 @@ bytes = { workspace = true }
 [[bench]]
 name = "sni_parsing"
 harness = false
+
+[[bench]]
+name = "throughput"
+harness = false
+
+[[bench]]
+name = "pool_operations"
+harness = false
