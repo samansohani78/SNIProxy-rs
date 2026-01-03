@@ -2,24 +2,27 @@
 # This proxy listens on ports 80 (HTTP) and 443 (HTTPS/TLS)
 # and forwards traffic to the original domain based on Host header or SNI
 
+# Required: TCP listen addresses for HTTP/HTTPS traffic
 listen_addrs:
   - "0.0.0.0:80"      # HTTP traffic (using 8080 for testing, use 80 for production)
   - "0.0.0.0:443"      # HTTPS/TLS traffic (using 8443 for testing, use 443 for production)
 
+# Required: Timeout configuration for various operations
 timeouts:
   connect: 10           # Timeout for connecting to backend (seconds)
   client_hello: 5       # Timeout for receiving TLS ClientHello or HTTP headers (seconds)
   idle: 300             # Idle connection timeout (seconds)
 
+# Required: Prometheus metrics configuration
 metrics:
   enabled: true
   address: "0.0.0.0:9090"   # Prometheus metrics endpoint
 
-# Connection management (PHASE 1: Stability improvements)
+# Optional: Connection management (PHASE 1: Stability improvements)
 max_connections: 100000        # Maximum concurrent connections (prevents file descriptor exhaustion)
 shutdown_timeout: 30          # Graceful shutdown timeout in seconds (wait for active connections)
 
-# Connection pooling (PHASE 3: Performance optimization)
+# Optional: Connection pooling (PHASE 3: Performance optimization)
 # NOTE: Limited effectiveness with transparent tunneling architecture
 # Works best for HTTP/1.1 keep-alive scenarios
 connection_pool:
@@ -30,7 +33,50 @@ connection_pool:
   cleanup_interval: 30       # Pool cleanup interval in seconds (default: 10)
 
 # Optional: Restrict to specific domains (comment out to allow all domains)
-# allowlist:
-#   - "example.com"
-#   - "*.sohani.me"
-#   - "api.sohani.me"
+allowlist:
+  - "ip.me"
+
+# Optional: UDP listener addresses for HTTP/3 and QUIC support
+# Uncomment to enable HTTP/3 protocol
+udp_listen_addrs:
+  - "0.0.0.0:443"      # QUIC/HTTP3 traffic (UDP)
+
+# Optional: QUIC protocol configuration
+# Only used if udp_listen_addrs is configured
+quic_config:
+  enabled: true
+  max_concurrent_streams: 100      # Per-connection stream limit
+  max_idle_timeout: 60             # Seconds
+  keep_alive_interval: 15          # Seconds
+  max_datagram_size: 1350          # Bytes (MTU safe, default: 1350)
+  enable_0rtt: true                # 0-RTT resumption
+
+# Optional: HTTP/3 protocol configuration
+# Only used if udp_listen_addrs is configured
+http3_config:
+  enabled: true
+  max_field_section_size: 8192           # Header size limit in bytes
+  qpack_max_table_capacity: 4096         # QPACK compression table size
+  qpack_blocked_streams: 16              # QPACK decoder limit
+
+# Optional: Protocol routing configuration for web protocols
+# Configure detection and behavior for Socket.IO, JSON-RPC, XML-RPC, SOAP, and generic RPC
+protocol_routing:
+  socketio:
+    enabled: true
+    extract_from_path: true
+    polling_timeout: 30
+  jsonrpc:
+    enabled: true
+    validate_batch: true
+    max_batch_size: 100
+  xmlrpc:
+    enabled: true
+    validate_xml: true
+  soap:
+    enabled: true
+    extract_from_action: true
+    validate_wsdl: false
+  rpc:
+    enabled: true
+    detect_from_path: true

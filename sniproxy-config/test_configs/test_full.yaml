@@ -1,0 +1,68 @@
+# Full config with all optional sections enabled
+listen_addrs:
+  - "0.0.0.0:8080"
+  - "0.0.0.0:8443"
+
+timeouts:
+  connect: 10
+  client_hello: 5
+  idle: 300
+
+metrics:
+  enabled: true
+  address: "0.0.0.0:9091"
+
+max_connections: 50000
+shutdown_timeout: 20
+
+connection_pool:
+  enabled: true
+  max_per_host: 500
+  connection_ttl: 300
+  idle_timeout: 150
+  cleanup_interval: 15
+
+allowlist:
+  - "example.com"
+  - "*.test.com"
+
+udp_listen_addrs:
+  - "0.0.0.0:8443"
+
+quic_config:
+  enabled: true
+  max_concurrent_streams: 50
+  max_idle_timeout: 30
+  keep_alive_interval: 10
+  max_datagram_size: 1200
+  enable_0rtt: false
+
+http3_config:
+  enabled: true
+  max_field_section_size: 4096
+  qpack_max_table_capacity: 2048
+  qpack_blocked_streams: 8
+
+protocol_routing:
+  socketio:
+    enabled: true
+    extract_from_path: true
+    polling_timeout: 20
+
+  jsonrpc:
+    enabled: true
+    validate_batch: true
+    max_batch_size: 50
+
+  xmlrpc:
+    enabled: true
+    validate_xml: true
+
+  soap:
+    enabled: true
+    extract_from_action: true
+    validate_wsdl: false
+
+  rpc:
+    enabled: true
+    detect_from_path: true

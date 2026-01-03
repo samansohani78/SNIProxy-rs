@@ -1,0 +1,13 @@
+# Minimal required config
+listen_addrs:
+  - "0.0.0.0:8080"
+  - "0.0.0.0:8443"
+
+timeouts:
+  connect: 10
+  client_hello: 5
+  idle: 300
+
+metrics:
+  enabled: true
+  address: "0.0.0.0:9091"

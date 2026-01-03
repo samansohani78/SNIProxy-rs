@@ -1,0 +1,12 @@
+# Absolutely minimal config - only required fields
+listen_addrs:
+  - "127.0.0.1:18080"
+
+timeouts:
+  connect: 5
+  client_hello: 3
+  idle: 60
+
+metrics:
+  enabled: false
+  address: "127.0.0.1:19090"
