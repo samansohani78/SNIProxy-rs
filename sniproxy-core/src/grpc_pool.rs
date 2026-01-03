@@ -102,6 +102,7 @@ impl GrpcChannel {
     }
 
     /// Mark channel as used and increment counters
+    #[allow(dead_code)]
     fn mark_used(&mut self) {
         self.rpc_count += 1;
         self.active_streams += 1;
@@ -267,28 +268,32 @@ impl GrpcConnectionPool {
                     continue;
                 }
 
-                // Found a valid channel
-                channel.mark_used();
-                *index_entry = (idx + 1) % pool_len;
+                // Found a valid channel - extract it from the pool
+                // Remove the channel and extract its stream
+                // This provides connection reuse while maintaining compatibility
+                // with the current API that returns TcpStream
+                let channel = pool.remove(idx);
+
+                // Update round-robin index
+                *index_entry = idx % pool.len().max(1);
 
                 debug!(
                     host = host,
-                    index = idx,
                     rpc_count = channel.rpc_count,
                     active_streams = channel.active_streams,
-                    "gRPC pool hit"
+                    remaining_in_pool = pool.len(),
+                    "gRPC pool hit - extracted channel"
                 );
 
                 if let Some(ref metrics) = self.metrics {
                     metrics.pool_hits.inc();
                     metrics.total_rpcs.inc();
+                    metrics.pool_size.dec();
+                    metrics.active_channels.inc();
                 }
 
-                // We need to extract the stream, which requires removing the channel
-                // For now, we'll just return None and let the caller create a new connection
-                // In a real implementation, we'd need a more sophisticated approach
-                // This is a simplified version for demonstration
-                return None; // TODO: Proper channel extraction
+                // Return the stream - caller is responsible for returning it via put()
+                return Some(channel.stream);
             }
         }
 
@@ -465,9 +470,15 @@ mod tests {
         // Put channel in pool
         assert!(pool.put("grpc.example.com".to_string(), stream));
 
-        // Currently get() returns None due to simplified implementation
-        // In a full implementation, this would return the channel
-        assert!(pool.get("grpc.example.com").is_none());
+        // get() should return the channel stream for reuse
+        let extracted = pool.get("grpc.example.com");
+        assert!(extracted.is_some(), "Should extract channel from pool");
+
+        // After extraction, pool should be empty for this host
+        assert!(
+            pool.get("grpc.example.com").is_none(),
+            "Pool should be empty after extraction"
+        );
     }
 
     #[tokio::test]
