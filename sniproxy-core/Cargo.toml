@@ -26,6 +26,10 @@ quinn = { workspace = true }
 rustls = { workspace = true }
 h3 = { workspace = true }
 h3-quinn = { workspace = true }
+# Phase 4 dependencies
+lru = { workspace = true }
+flate2 = { workspace = true }
+async-compression = { workspace = true }
 
 [dev-dependencies]
 rcgen = { workspace = true }

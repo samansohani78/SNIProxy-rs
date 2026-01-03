@@ -330,6 +330,7 @@ impl ConnectionHandler {
                 max_per_host: pool_config.max_per_host,
                 connection_ttl: pool_config.connection_ttl,
                 idle_timeout: pool_config.idle_timeout,
+                ..Default::default() // Use defaults for Keep-Alive settings
             };
 
             let pool = if let Some(reg) = registry {

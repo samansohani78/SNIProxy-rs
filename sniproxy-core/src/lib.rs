@@ -1,10 +1,14 @@
 pub mod connection;
 pub mod connection_pool;
+pub mod grpc_pool;
 mod http;
+pub mod http2_cache;
 pub mod metrics_cache;
 pub mod protocols;
+pub mod qpack;
 pub mod quic_handler;
 pub mod udp_connection;
+pub mod websocket_compression;
 
 use connection::ConnectionHandler;
 use futures::StreamExt;
