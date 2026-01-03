@@ -1,11 +1,13 @@
 # SNIProxy Configuration
-# This proxy listens on ports 80 (HTTP) and 443 (HTTPS/TLS)
-# and forwards traffic to the original domain based on Host header or SNI
+# This proxy listens on ports 80 (HTTP), 443 (HTTPS/TLS), and 22 (SSH)
+# and forwards traffic to the original domain based on Host header, SNI, or iptables redirect
+# NOTE: Server SSH has been moved to port 2222 to free up port 22 for the proxy
 
-# Required: TCP listen addresses for HTTP/HTTPS traffic
+# Required: TCP listen addresses for HTTP/HTTPS/SSH traffic
 listen_addrs:
-  - "0.0.0.0:80"      # HTTP traffic (using 8080 for testing, use 80 for production)
-  - "0.0.0.0:443"      # HTTPS/TLS traffic (using 8443 for testing, use 443 for production)
+  - "0.0.0.0:80"      # HTTP traffic
+  - "0.0.0.0:443"     # HTTPS/TLS traffic
+  - "0.0.0.0:22"      # SSH transparent proxy (automatic destination detection)
 
 # Required: Timeout configuration for various operations
 timeouts:
@@ -80,3 +82,16 @@ protocol_routing:
   rpc:
     enabled: true
     detect_from_path: true
+
+# Optional: SSH transparent proxy configuration
+# SSH uses automatic destination detection via iptables REDIRECT (Linux only)
+# Setup: sudo iptables -t nat -A OUTPUT -p tcp --dport 22 -j REDIRECT --to-ports 22
+# This allows SSH to ANY destination to work automatically without configuration!
+#
+# Manual port-based routing (fallback for non-Linux or when iptables not available):
+# ssh_routes:
+#   - listen_port: 22
+#     destination_host: "github.com"
+#     destination_port: 22
+#
+# With automatic mode enabled (default on Linux), NO ssh_routes configuration needed!

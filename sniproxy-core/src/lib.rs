@@ -7,6 +7,7 @@ pub mod metrics_cache;
 pub mod protocols;
 pub mod qpack;
 pub mod quic_handler;
+pub mod ssh;
 pub mod udp_connection;
 pub mod websocket_compression;
 

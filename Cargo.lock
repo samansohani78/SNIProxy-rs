@@ -1983,6 +1983,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "libc",
  "lru",
  "prometheus",
  "prost",

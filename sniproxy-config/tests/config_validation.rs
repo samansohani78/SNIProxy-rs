@@ -118,9 +118,10 @@ fn test_production_config_loads() {
     let config = Config::from_file(&path).expect("Failed to load production config");
 
     // Verify production config structure
-    assert_eq!(config.listen_addrs.len(), 2);
+    assert_eq!(config.listen_addrs.len(), 3);
     assert_eq!(config.listen_addrs[0], "0.0.0.0:80");
     assert_eq!(config.listen_addrs[1], "0.0.0.0:443");
+    assert_eq!(config.listen_addrs[2], "0.0.0.0:22"); // SSH transparent proxy
 
     assert_eq!(config.timeouts.connect, 10);
     assert_eq!(config.timeouts.client_hello, 5);

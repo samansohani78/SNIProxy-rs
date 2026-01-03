@@ -62,6 +62,7 @@ fn create_test_config(proxy_port: u16, metrics_port: u16) -> Config {
         udp_listen_addrs: None,
         quic_config: None,
         http3_config: None,
+        ssh_routes: None,
     }
 }
 

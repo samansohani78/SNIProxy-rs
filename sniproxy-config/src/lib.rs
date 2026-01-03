@@ -37,6 +37,9 @@ pub struct Config {
     /// HTTP/3 configuration (optional)
     #[serde(default)]
     pub http3_config: Option<Http3Config>,
+    /// SSH port routing configuration (optional)
+    #[serde(default)]
+    pub ssh_routes: Option<Vec<SshRoute>>,
 }
 
 /// Connection pooling configuration.
@@ -458,6 +461,26 @@ fn default_qpack_max_table_capacity() -> usize {
 
 fn default_qpack_blocked_streams() -> u16 {
     16
+}
+
+/// SSH port routing configuration
+///
+/// Since SSH protocol doesn't include hostname information (like SNI or Host header),
+/// routing is based on which port the connection arrives on. Each listening port
+/// can be mapped to a destination host:port.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SshRoute {
+    /// Listen port for SSH connections (e.g., 22, 2222, 2200)
+    pub listen_port: u16,
+    /// Destination host for connections on this port (e.g., "github.com")
+    pub destination_host: String,
+    /// Destination port (default: 22)
+    #[serde(default = "default_ssh_port")]
+    pub destination_port: u16,
+}
+
+fn default_ssh_port() -> u16 {
+    22
 }
 
 #[cfg(test)]

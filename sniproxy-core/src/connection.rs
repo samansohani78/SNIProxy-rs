@@ -47,6 +47,9 @@ const SWITCHING_PROTOCOLS: &[u8] = b"HTTP/1.1 101";
 #[allow(dead_code)]
 const GRPC_CONTENT_TYPE: &str = "application/grpc";
 
+// SSH detection constants
+const SSH_VERSION_PREFIX: &[u8] = b"SSH-";
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code)] // Some variants reserved for future use
 enum Protocol {
@@ -61,6 +64,7 @@ enum Protocol {
     XmlRpc,    // XML-RPC
     Soap,      // SOAP 1.1/1.2
     Rpc,       // Generic RPC over HTTP
+    Ssh,       // SSH protocol
     Tls,       // TLS without protocol identification
     Unknown,   // Unknown protocol
 }
@@ -81,6 +85,7 @@ impl Protocol {
             Protocol::XmlRpc => "xml-rpc",
             Protocol::Soap => "soap",
             Protocol::Rpc => "rpc",
+            Protocol::Ssh => "ssh",
             Protocol::Tls => "tls",
             Protocol::Unknown => "unknown",
         }
@@ -98,6 +103,7 @@ impl Protocol {
             | Protocol::XmlRpc
             | Protocol::Soap
             | Protocol::Rpc => 80,
+            Protocol::Ssh => 22,
             Protocol::Unknown => 0,
         }
     }
@@ -477,6 +483,7 @@ impl ConnectionHandler {
             | Protocol::XmlRpc
             | Protocol::Soap
             | Protocol::Rpc => self.handle_http(client, protocol).await?,
+            Protocol::Ssh => self.handle_ssh(client).await?,
             Protocol::Tls => self.handle_https(client, None).await?,
             Protocol::Http3 => {
                 // HTTP/3 requires QUIC which we'd handle differently
@@ -540,6 +547,14 @@ impl ConnectionHandler {
                 // If we can't find the end of the line, default to HTTP/1.1
                 return Ok(Protocol::Http11);
             }
+        }
+
+        // Check for SSH protocol
+        if peek_buf.len() >= SSH_VERSION_PREFIX.len()
+            && &peek_buf[..SSH_VERSION_PREFIX.len()] == SSH_VERSION_PREFIX
+        {
+            debug!("Detected SSH protocol");
+            return Ok(Protocol::Ssh);
         }
 
         // Check for TLS handshake
@@ -697,6 +712,97 @@ impl ConnectionHandler {
         Ok(())
     }
 
+    async fn handle_ssh(&self, client: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+        // SSH doesn't include hostname in protocol, so we use multiple routing strategies:
+        // 1. Try to get original destination (transparent proxy with SO_ORIGINAL_DST)
+        // 2. Use port-based routing from config (if configured)
+        // 3. Try to extract from peer address if it's a direct connection
+
+        let local_addr = client.local_addr()?;
+        let peer_addr = client.peer_addr()?;
+        let listen_port = local_addr.port();
+
+        debug!(
+            listen_port = listen_port,
+            peer = %peer_addr,
+            "Handling SSH connection"
+        );
+
+        // Strategy 1: Try to get original destination via SO_ORIGINAL_DST (iptables REDIRECT)
+        #[cfg(target_os = "linux")]
+        let original_dst = self.get_original_destination(client);
+
+        #[cfg(not(target_os = "linux"))]
+        let original_dst: Option<SocketAddr> = None;
+
+        let target_addr = if let Some(orig_dst) = original_dst {
+            // We have the original destination from iptables REDIRECT
+            info!(
+                listen_port = listen_port,
+                original_dst = %orig_dst,
+                "SSH auto-routing to original destination"
+            );
+            format!("{}:{}", orig_dst.ip(), orig_dst.port())
+        } else if let Some(ref ssh_routes) = self.config.ssh_routes {
+            // Strategy 2: Port-based routing from config
+            match ssh_routes
+                .iter()
+                .find(|route| route.listen_port == listen_port)
+            {
+                Some(route) => {
+                    info!(
+                        listen_port = listen_port,
+                        destination_host = %route.destination_host,
+                        destination_port = route.destination_port,
+                        "SSH route found in config"
+                    );
+                    format!("{}:{}", route.destination_host, route.destination_port)
+                }
+                None => {
+                    warn!(
+                        listen_port = listen_port,
+                        "No SSH route configured for this port and no original destination available"
+                    );
+                    return Ok(());
+                }
+            }
+        } else {
+            // No routing configuration available
+            warn!(
+                listen_port = listen_port,
+                "No SSH routing available - enable transparent proxy (iptables REDIRECT) or configure ssh_routes"
+            );
+            return Ok(());
+        };
+
+        // Setup metrics if enabled
+        let host_for_metrics = target_addr.split(':').next().unwrap_or(&target_addr);
+        let metrics = self.metrics.as_ref().map(|m| {
+            let label = m.label_cache.get_or_insert(host_for_metrics, "ssh");
+            // Static string references for direction labels
+            const TX: &str = "tx";
+            const RX: &str = "rx";
+            (
+                m.bytes_transferred.with_label_values(&[label.as_ref(), TX]),
+                m.bytes_transferred.with_label_values(&[label.as_ref(), RX]),
+            )
+        });
+
+        // Connect to the target SSH server
+        let server = self.connect_to_server(&target_addr).await?;
+
+        debug!(
+            destination = %target_addr,
+            "Connected to SSH server, starting tunnel"
+        );
+
+        // SSH is a bidirectional protocol - just tunnel the connection
+        let idle_timeout = Duration::from_secs(self.config.timeouts.idle);
+        copy_bidirectional_timeout(client, server, idle_timeout, metrics).await?;
+
+        Ok(())
+    }
+
     async fn handle_http2(
         &self,
         client: &mut TcpStream,
@@ -757,6 +863,61 @@ impl ConnectionHandler {
         copy_bidirectional_timeout(client, server, idle_timeout, metrics).await?;
 
         Ok(())
+    }
+
+    /// Get original destination address (before NAT/iptables REDIRECT)
+    ///
+    /// On Linux, when using iptables REDIRECT rules, the original destination
+    /// address can be retrieved using the SO_ORIGINAL_DST socket option.
+    /// This enables transparent proxying without manual configuration.
+    ///
+    /// Example iptables rule:
+    /// ```bash
+    /// iptables -t nat -A PREROUTING -p tcp --dport 22 -j REDIRECT --to-ports 2222
+    /// ```
+    #[cfg(target_os = "linux")]
+    fn get_original_destination(&self, stream: &TcpStream) -> Option<SocketAddr> {
+        use std::os::fd::AsRawFd;
+
+        // SO_ORIGINAL_DST socket option value
+        const SO_ORIGINAL_DST: libc::c_int = 80;
+
+        let fd = stream.as_raw_fd();
+        let mut addr: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+        let mut addr_len: libc::socklen_t =
+            std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+
+        let result = unsafe {
+            libc::getsockopt(
+                fd,
+                libc::SOL_IP,
+                SO_ORIGINAL_DST,
+                &mut addr as *mut _ as *mut libc::c_void,
+                &mut addr_len as *mut libc::socklen_t,
+            )
+        };
+
+        if result != 0 {
+            debug!("Failed to get SO_ORIGINAL_DST");
+            return None;
+        }
+
+        // Convert sockaddr_storage to SocketAddr
+        match addr.ss_family as libc::c_int {
+            libc::AF_INET => {
+                let addr_in = unsafe { *((&addr) as *const _ as *const libc::sockaddr_in) };
+                let ip = std::net::Ipv4Addr::from(u32::from_be(addr_in.sin_addr.s_addr));
+                let port = u16::from_be(addr_in.sin_port);
+                Some(SocketAddr::new(ip.into(), port))
+            }
+            libc::AF_INET6 => {
+                let addr_in6 = unsafe { *((&addr) as *const _ as *const libc::sockaddr_in6) };
+                let ip = std::net::Ipv6Addr::from(addr_in6.sin6_addr.s6_addr);
+                let port = u16::from_be(addr_in6.sin6_port);
+                Some(SocketAddr::new(ip.into(), port))
+            }
+            _ => None,
+        }
     }
 
     /// Helper method to connect to a server with timeout

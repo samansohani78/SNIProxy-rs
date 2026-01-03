@@ -31,6 +31,9 @@ lru = { workspace = true }
 flate2 = { workspace = true }
 async-compression = { workspace = true }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 rcgen = { workspace = true }
 criterion = { workspace = true }
