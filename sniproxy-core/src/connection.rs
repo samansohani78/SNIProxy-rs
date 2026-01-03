@@ -736,13 +736,30 @@ impl ConnectionHandler {
         let original_dst: Option<SocketAddr> = None;
 
         let target_addr = if let Some(orig_dst) = original_dst {
-            // We have the original destination from iptables REDIRECT
-            info!(
-                listen_port = listen_port,
-                original_dst = %orig_dst,
-                "SSH auto-routing to original destination"
-            );
-            format!("{}:{}", orig_dst.ip(), orig_dst.port())
+            // Check for loop: if original destination is the proxy itself, skip it
+            if orig_dst.ip() == local_addr.ip() && orig_dst.port() == listen_port {
+                warn!(
+                    listen_port = listen_port,
+                    original_dst = %orig_dst,
+                    "SSH loop detected - original destination is the proxy itself, trying fallback routing"
+                );
+                // Fall through to next strategy (port-based routing)
+                None
+            } else {
+                // We have the original destination from iptables REDIRECT
+                info!(
+                    listen_port = listen_port,
+                    original_dst = %orig_dst,
+                    "SSH auto-routing to original destination"
+                );
+                Some(format!("{}:{}", orig_dst.ip(), orig_dst.port()))
+            }
+        } else {
+            None
+        };
+
+        let target_addr = if let Some(addr) = target_addr {
+            addr
         } else if let Some(ref ssh_routes) = self.config.ssh_routes {
             // Strategy 2: Port-based routing from config
             match ssh_routes
@@ -879,7 +896,6 @@ impl ConnectionHandler {
     fn get_original_destination(&self, stream: &TcpStream) -> Option<SocketAddr> {
         use std::os::fd::AsRawFd;
 
-        
         // SO_ORIGINAL_DST socket option value
         const SO_ORIGINAL_DST: libc::c_int = 80;
 
