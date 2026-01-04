@@ -118,9 +118,9 @@ async fn test_production_config_sensible_values() {
     assert_eq!(config.max_connections.unwrap(), 100000);
     assert_eq!(config.shutdown_timeout.unwrap(), 30);
 
-    // Pool should be enabled with high limits
+    // Pool should be DISABLED for transparent proxy (avoid file descriptor leaks)
     let pool = config.connection_pool.as_ref().unwrap();
-    assert!(pool.enabled);
+    assert!(!pool.enabled); // Must be false to avoid leaks
     assert_eq!(pool.max_per_host, 1000);
     assert_eq!(pool.connection_ttl, 600); // 10 minutes
     assert_eq!(pool.idle_timeout, 300); // 5 minutes

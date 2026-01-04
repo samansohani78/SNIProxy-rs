@@ -136,7 +136,7 @@ fn test_production_config_loads() {
     let pool = config
         .connection_pool
         .expect("Connection pool should be configured");
-    assert!(pool.enabled);
+    assert!(!pool.enabled); // Must be disabled to avoid file descriptor leaks in transparent proxy
     assert_eq!(pool.max_per_host, 1000);
     assert_eq!(pool.connection_ttl, 600);
     assert_eq!(pool.idle_timeout, 300);
