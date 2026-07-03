@@ -14,17 +14,28 @@ pub mod websocket_compression;
 use connection::ConnectionHandler;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
+use libc;
 use prometheus::Registry;
 use sniproxy_config::Config;
+use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use tokio::net::{TcpListener, UdpSocket};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::signal;
 use tokio::sync::{Semaphore, broadcast};
 use tokio::time::timeout;
 use tracing::{error, info, warn};
+
+/// Awaits one accept on `listener` and returns the listener alongside the result
+/// so the caller can immediately re-queue it in a persistent `FuturesUnordered`.
+async fn accept_one(
+    listener: Arc<TcpListener>,
+) -> (Arc<TcpListener>, io::Result<(TcpStream, SocketAddr)>) {
+    let result = listener.accept().await;
+    (listener, result)
+}
 
 use crate::udp_connection::UdpConnectionHandler;
 
@@ -66,6 +77,7 @@ pub async fn run_proxy(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(config);
     let handler = ConnectionHandler::new(config.clone(), registry.as_ref());
+    handler.start_background_tasks();
 
     // Connection limit enforcement with semaphore
     let max_connections = config.max_connections.unwrap_or(10000);
@@ -77,11 +89,11 @@ pub async fn run_proxy(
 
     info!("Connection limit set to {}", max_connections);
 
-    let mut listeners: Vec<TcpListener> = Vec::new();
+    let mut listeners: Vec<Arc<TcpListener>> = Vec::new();
     for addr_str in &config.listen_addrs {
         let addr: SocketAddr = addr_str.parse()?;
         info!("Starting listener on {}", addr);
-        listeners.push(TcpListener::bind(addr).await?);
+        listeners.push(Arc::new(TcpListener::bind(addr).await?));
     }
 
     // UDP listeners for HTTP/3 and QUIC (if configured)
@@ -110,12 +122,13 @@ pub async fn run_proxy(
 
     info!("Proxy started, waiting for connections...");
 
-    loop {
-        let mut accepts = FuturesUnordered::new();
-        for listener in &listeners {
-            accepts.push(listener.accept());
-        }
+    // One persistent future per listener — each re-queues itself after firing,
+    // so all N sockets are always accepting concurrently with no per-connection
+    // allocation or re-submission overhead.
+    let mut accepts: FuturesUnordered<_> =
+        listeners.iter().map(|l| accept_one(l.clone())).collect();
 
+    loop {
         tokio::select! {
             // Graceful shutdown signal from broadcast channel
             _ = shutdown_rx.recv() => {
@@ -128,7 +141,9 @@ pub async fn run_proxy(
                 break;
             }
             // Accept new connections
-            Some(result) = accepts.next() => {
+            Some((listener, result)) = accepts.next() => {
+                // Re-queue this listener immediately so it's always active.
+                accepts.push(accept_one(listener));
                 match result {
                     Ok((socket, addr)) => {
                         // Try to acquire connection permit
@@ -151,8 +166,11 @@ pub async fn run_proxy(
 
                                 connection_handles.push(handle);
 
-                                // Cleanup completed handles to prevent unbounded growth
-                                connection_handles.retain(|h| !h.is_finished());
+                                // Compact only when the vec has grown significantly to
+                                // avoid O(n) retain on every accept under high load.
+                                if connection_handles.len() > 1024 {
+                                    connection_handles.retain(|h| !h.is_finished());
+                                }
                             }
                             Err(_) => {
                                 warn!(
@@ -163,7 +181,18 @@ pub async fn run_proxy(
                         }
                     }
                     Err(e) => {
-                        error!("Accept error: {}", e);
+                        // EMFILE / ENFILE: out of file descriptors. Back off to let
+                        // existing connections close; spinning immediately would peg
+                        // the CPU and produce a log storm.
+                        let is_resource_error = e.raw_os_error()
+                            .map(|code| code == libc::EMFILE || code == libc::ENFILE)
+                            .unwrap_or(false);
+                        if is_resource_error {
+                            warn!("Accept error (out of file descriptors), backing off: {}", e);
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        } else {
+                            error!("Accept error: {}", e);
+                        }
                     }
                 }
             }
