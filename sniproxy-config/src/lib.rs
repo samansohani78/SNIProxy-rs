@@ -135,7 +135,8 @@ impl Config {
     /// ```
     pub fn from_file(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let contents = fs::read_to_string(path)?;
-        let config = serde_yaml_ng::from_str(&contents)?;
+        let config: Self = serde_yaml_ng::from_str(&contents)?;
+        config.validate()?;
         Ok(config)
     }
 
@@ -168,8 +169,52 @@ impl Config {
     /// assert_eq!(config.listen_addrs[0], "0.0.0.0:443");
     /// ```
     pub fn parse(contents: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let config = serde_yaml_ng::from_str(contents)?;
+        let config: Self = serde_yaml_ng::from_str(contents)?;
+        config.validate()?;
         Ok(config)
+    }
+
+    /// Validates the configuration for semantic correctness.
+    ///
+    /// Called automatically by [`from_file`](Self::from_file) and [`parse`](Self::parse).
+    /// Returns an error describing the first problem found.
+    pub fn validate(&self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.listen_addrs.is_empty() {
+            return Err("listen_addrs must not be empty".into());
+        }
+        for addr in &self.listen_addrs {
+            addr.parse::<std::net::SocketAddr>()
+                .map_err(|e| format!("invalid listen_addr '{}': {}", addr, e))?;
+        }
+        if self.timeouts.connect == 0 {
+            return Err("timeouts.connect must be greater than 0".into());
+        }
+        if self.timeouts.client_hello == 0 {
+            return Err("timeouts.client_hello must be greater than 0".into());
+        }
+        if self.timeouts.idle == 0 {
+            return Err("timeouts.idle must be greater than 0".into());
+        }
+        if self.metrics.enabled {
+            self.metrics
+                .address
+                .parse::<std::net::SocketAddr>()
+                .map_err(|e| {
+                    format!("invalid metrics.address '{}': {}", self.metrics.address, e)
+                })?;
+        }
+        if let Some(max) = self.max_connections {
+            if max == 0 {
+                return Err("max_connections must be greater than 0".into());
+            }
+        }
+        if let Some(udp_addrs) = &self.udp_listen_addrs {
+            for addr in udp_addrs {
+                addr.parse::<std::net::SocketAddr>()
+                    .map_err(|e| format!("invalid udp_listen_addr '{}': {}", addr, e))?;
+            }
+        }
+        Ok(())
     }
 }
 

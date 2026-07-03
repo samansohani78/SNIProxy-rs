@@ -128,7 +128,7 @@ fn test_production_config_loads() {
     assert_eq!(config.timeouts.idle, 300);
 
     assert!(config.metrics.enabled);
-    assert_eq!(config.metrics.address, "0.0.0.0:9090");
+    assert_eq!(config.metrics.address, "127.0.0.1:9090");
 
     assert_eq!(config.max_connections, Some(100000));
     assert_eq!(config.shutdown_timeout, Some(30));
@@ -202,4 +202,100 @@ timeouts:
 
     let result = Config::parse(yaml);
     assert!(result.is_err(), "Should fail on invalid YAML");
+}
+
+#[test]
+fn test_validate_empty_listen_addrs() {
+    let yaml = r#"
+listen_addrs: []
+timeouts:
+  connect: 10
+  client_hello: 5
+  idle: 300
+metrics:
+  enabled: true
+  address: "127.0.0.1:9090"
+"#;
+    let result = Config::parse(yaml);
+    assert!(result.is_err(), "Should fail with empty listen_addrs");
+    assert!(
+        result.unwrap_err().to_string().contains("listen_addrs"),
+        "Error should mention listen_addrs"
+    );
+}
+
+#[test]
+fn test_validate_zero_connect_timeout() {
+    let yaml = r#"
+listen_addrs:
+  - "0.0.0.0:443"
+timeouts:
+  connect: 0
+  client_hello: 5
+  idle: 300
+metrics:
+  enabled: true
+  address: "127.0.0.1:9090"
+"#;
+    let result = Config::parse(yaml);
+    assert!(result.is_err(), "Should fail with zero connect timeout");
+}
+
+#[test]
+fn test_validate_invalid_listen_addr() {
+    let yaml = r#"
+listen_addrs:
+  - "not-a-socket-address"
+timeouts:
+  connect: 10
+  client_hello: 5
+  idle: 300
+metrics:
+  enabled: true
+  address: "127.0.0.1:9090"
+"#;
+    let result = Config::parse(yaml);
+    assert!(result.is_err(), "Should fail with unparseable listen_addr");
+}
+
+#[test]
+fn test_validate_invalid_metrics_address() {
+    let yaml = r#"
+listen_addrs:
+  - "0.0.0.0:443"
+timeouts:
+  connect: 10
+  client_hello: 5
+  idle: 300
+metrics:
+  enabled: true
+  address: "not-a-valid-address"
+"#;
+    let result = Config::parse(yaml);
+    assert!(
+        result.is_err(),
+        "Should fail with unparseable metrics address"
+    );
+    assert!(
+        result.unwrap_err().to_string().contains("metrics.address"),
+        "Error should mention metrics.address"
+    );
+}
+
+#[test]
+fn test_validate_zero_max_connections() {
+    let yaml = r#"
+listen_addrs:
+  - "0.0.0.0:443"
+timeouts:
+  connect: 10
+  client_hello: 5
+  idle: 300
+metrics:
+  enabled: true
+  address: "127.0.0.1:9090"
+max_connections: 0
+"#;
+    let result = Config::parse(yaml);
+    assert!(result.is_err(), "Should fail with max_connections = 0");
 }
