@@ -128,7 +128,7 @@ fn test_production_config_loads() {
     assert_eq!(config.timeouts.idle, 300);
 
     assert!(config.metrics.enabled);
-    assert_eq!(config.metrics.address, "127.0.0.1:9090");
+    assert_eq!(config.metrics.address, "0.0.0.0:9090");
 
     assert_eq!(config.max_connections, Some(100000));
     assert_eq!(config.shutdown_timeout, Some(30));

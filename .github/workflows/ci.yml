@@ -84,11 +84,14 @@ jobs:
           file target/release/sniproxy-server
 
   # Deploy on self-hosted runner (only on main branch push)
+  # Requires a GitHub environment named "production" with required reviewers configured:
+  # Repository Settings → Environments → production → Required reviewers
   deploy:
     name: Deploy to Production
     runs-on: [self-hosted, sniproxy]
     needs: build-and-test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

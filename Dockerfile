@@ -108,9 +108,9 @@ ps aux || echo "ps failed"\n\
 \n\
 # Check each required port and attempt to force release if needed\n\
 echo "=== Port Availability Check ==="\n\
-check_port 38080 "force"\n\
-check_port 38443 "force"\n\
-check_port 39090 "force"\n\
+check_port 80 "force"\n\
+check_port 443 "force"\n\
+check_port 22 "force"\n\
 \n\
 echo "=== Starting SNIProxy with verbose logging ==="\n\
 exec /usr/local/bin/sniproxy-server -c /etc/sniproxy/config.yaml\n\

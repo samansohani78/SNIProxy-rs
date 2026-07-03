@@ -56,7 +56,7 @@ timeouts:
 # Prometheus metrics
 metrics:
   enabled: true
-  address: "127.0.0.1:9090"  # localhost only; use 0.0.0.0:9090 to expose externally
+  address: "0.0.0.0:9090"  # restrict with a firewall rule if metrics must not be publicly reachable
 
 # Optional: Domain allowlist (supports wildcards)
 allowlist:
