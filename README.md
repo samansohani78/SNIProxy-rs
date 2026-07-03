@@ -56,7 +56,7 @@ timeouts:
 # Prometheus metrics
 metrics:
   enabled: true
-  address: "0.0.0.0:9000"
+  address: "127.0.0.1:9090"  # localhost only; use 0.0.0.0:9090 to expose externally
 
 # Optional: Domain allowlist (supports wildcards)
 allowlist:
@@ -115,7 +115,7 @@ Client → SNIProxy → Backend Server
 
 ### Metrics Endpoint
 
-Access Prometheus metrics at `http://localhost:9000/metrics`:
+Access Prometheus metrics at `http://localhost:9090/metrics`:
 
 ```promql
 # Key metrics
@@ -129,7 +129,7 @@ sniproxy_errors_total               # Error count by type
 ### Health Check
 
 ```bash
-curl http://localhost:9000/health
+curl http://localhost:9090/health
 # Returns: {"status":"healthy","service":"sniproxy"}
 ```
 

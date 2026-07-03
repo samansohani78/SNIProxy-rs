@@ -5,4 +5,4 @@ global:
 scrape_configs:
   - job_name: 'sniproxy'
     static_configs:
-      - targets: ['sniproxy:9000']
+      - targets: ['sniproxy:9090']

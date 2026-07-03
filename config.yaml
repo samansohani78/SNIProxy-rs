@@ -18,7 +18,7 @@ timeouts:
 # Required: Prometheus metrics configuration
 metrics:
   enabled: true
-  address: "0.0.0.0:9090"   # Prometheus metrics endpoint
+  address: "127.0.0.1:9090"  # Prometheus metrics endpoint (localhost only; use 0.0.0.0:9090 to expose externally)
 
 # Optional: Connection management (PHASE 1: Stability improvements)
 max_connections: 100000        # Maximum concurrent connections (prevents file descriptor exhaustion)

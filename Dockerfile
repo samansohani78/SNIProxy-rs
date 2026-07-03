@@ -22,15 +22,12 @@ RUN useradd -m -U -u 1000 -s /bin/false sniproxy
 RUN apt update && \
     apt install -y ca-certificates procps net-tools lsof wget curl \
                    iproute2 iputils-ping netcat-openbsd tcpdump \
-                   dnsutils psmisc && \
+                   dnsutils psmisc libcap2-bin && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the binary from builder
 COPY --from=builder /usr/src/sniproxy/target/release/sniproxy-server /usr/local/bin/
 COPY --from=builder /usr/src/sniproxy/config.yaml /etc/sniproxy/config.yaml
-
-# Copy our startup script
-COPY startup.sh /usr/local/bin/
 
 # Add port-check script
 RUN echo '#!/bin/sh\n\
@@ -60,8 +57,6 @@ check_port() {\n\
                 # Try to force release the port with netstat/ss\n\
                 if [ "$2" = "force" ]; then\n\
                     echo "Attempting to close all TIME_WAIT sockets on port $port..."\n\
-                    # Force close TIME_WAIT sockets\n\
-                    echo 1 > /proc/sys/net/ipv4/tcp_tw_recycle 2>/dev/null || true\n\
                     sleep 1\n\
                 fi\n\
             fi\n\
@@ -121,18 +116,16 @@ echo "=== Starting SNIProxy with verbose logging ==="\n\
 exec /usr/local/bin/sniproxy-server -c /etc/sniproxy/config.yaml\n\
 ' > /usr/local/bin/debug-startup.sh
 
-# Set proper permissions
+# Set proper permissions and grant capability to bind to ports < 1024
 RUN chown -R sniproxy:sniproxy /etc/sniproxy && \
     chmod +x /usr/local/bin/sniproxy-server && \
-    chmod +x /usr/local/bin/startup.sh && \
     chmod +x /usr/local/bin/port-check.sh && \
     chmod +x /usr/local/bin/debug-startup.sh && \
-    chown sniproxy:sniproxy /usr/local/bin/startup.sh && \
     chown sniproxy:sniproxy /usr/local/bin/port-check.sh && \
-    chown sniproxy:sniproxy /usr/local/bin/debug-startup.sh
+    chown sniproxy:sniproxy /usr/local/bin/debug-startup.sh && \
+    setcap 'cap_net_bind_service=+ep' /usr/local/bin/sniproxy-server
 
-# We need to run as root for some network operations and process management
-# Will switch to sniproxy user in the startup script when appropriate
+USER sniproxy
 
 # Expose our actual ports
 EXPOSE 38080 38443 39090

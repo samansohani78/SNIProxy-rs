@@ -93,9 +93,12 @@ pub async fn run(config_path: &Path) -> Result<(), Box<dyn Error>> {
                                                 _ => {
                                                     // 404 for unknown paths
                                                     let not_found = r#"{"error":"not_found"}"#;
-                                                    Ok::<_, String>(Response::new(Full::new(
-                                                        bytes::Bytes::from(not_found),
-                                                    )))
+                                                    Ok::<_, String>(
+                                                        Response::builder()
+                                                            .status(404)
+                                                            .body(Full::new(bytes::Bytes::from(not_found)))
+                                                            .unwrap(),
+                                                    )
                                                 }
                                             }
                                         }
