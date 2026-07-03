@@ -93,16 +93,18 @@ pub async fn extract_host(
     }
 }
 
-/// Tunnels an HTTP connection with metrics tracking
+/// Tunnels an HTTP connection with metrics tracking and configurable timeouts.
 pub async fn tunnel_http(
     client: &mut TcpStream,
     initial_data: &[u8],
     host: &str,
     port: u16,
+    connect_timeout: Duration,
+    idle_timeout: Duration,
     metrics: Option<(IntCounter, IntCounter)>,
 ) -> Result<(), HttpError> {
     let addr = format!("{}:{}", host, port);
-    let mut server = TcpStream::connect(addr).await?;
+    let mut server = timeout(connect_timeout, TcpStream::connect(addr)).await??;
 
     // Forward the initial request
     server.write_all(initial_data).await?;
@@ -110,32 +112,43 @@ pub async fn tunnel_http(
     let (mut client_read, mut client_write) = tokio::io::split(client);
     let (mut server_read, mut server_write) = tokio::io::split(&mut server);
 
-    // If metrics are enabled, use the tracking copy, otherwise use the standard copy
     if let Some((tx_counter, rx_counter)) = metrics {
         tokio::try_join!(
-            copy_with_metrics(&mut client_read, &mut server_write, tx_counter),
-            copy_with_metrics(&mut server_read, &mut client_write, rx_counter)
+            copy_with_metrics_timeout(
+                &mut client_read,
+                &mut server_write,
+                tx_counter,
+                idle_timeout
+            ),
+            copy_with_metrics_timeout(
+                &mut server_read,
+                &mut client_write,
+                rx_counter,
+                idle_timeout
+            )
         )?;
     } else {
         tokio::try_join!(
-            tokio::io::copy(&mut client_read, &mut server_write),
-            tokio::io::copy(&mut server_read, &mut client_write)
+            copy_with_idle_timeout(&mut client_read, &mut server_write, idle_timeout),
+            copy_with_idle_timeout(&mut server_read, &mut client_write, idle_timeout)
         )?;
     }
 
     Ok(())
 }
 
-/// Tunnels a WebSocket connection with upgrade detection
+/// Tunnels a WebSocket connection with upgrade detection and configurable timeouts.
 pub async fn tunnel_websocket(
     client: &mut TcpStream,
     initial_data: &[u8],
     host: &str,
     port: u16,
+    connect_timeout: Duration,
+    idle_timeout: Duration,
     metrics: Option<(IntCounter, IntCounter)>,
 ) -> Result<(), HttpError> {
     let addr = format!("{}:{}", host, port);
-    let mut server = TcpStream::connect(addr).await?;
+    let mut server = timeout(connect_timeout, TcpStream::connect(addr)).await??;
 
     // Forward the initial request
     server.write_all(initial_data).await?;
@@ -185,7 +198,7 @@ pub async fn tunnel_websocket(
                     .contains(&format!("upgrade: {}", WEBSOCKET_UPGRADE))
             {
                 _is_websocket = true;
-                println!("WebSocket upgrade detected");
+                tracing::debug!("WebSocket upgrade detected");
             }
         }
     }
@@ -197,16 +210,25 @@ pub async fn tunnel_websocket(
     let (mut client_read, mut client_write) = tokio::io::split(client);
     let (mut server_read, mut server_write) = tokio::io::split(&mut server);
 
-    // If metrics are enabled, use the tracking copy, otherwise use the standard copy
     if let Some((tx_counter, rx_counter)) = metrics {
         tokio::try_join!(
-            copy_with_metrics(&mut client_read, &mut server_write, tx_counter),
-            copy_with_metrics(&mut server_read, &mut client_write, rx_counter)
+            copy_with_metrics_timeout(
+                &mut client_read,
+                &mut server_write,
+                tx_counter,
+                idle_timeout
+            ),
+            copy_with_metrics_timeout(
+                &mut server_read,
+                &mut client_write,
+                rx_counter,
+                idle_timeout
+            )
         )?;
     } else {
         tokio::try_join!(
-            tokio::io::copy(&mut client_read, &mut server_write),
-            tokio::io::copy(&mut server_read, &mut client_write)
+            copy_with_idle_timeout(&mut client_read, &mut server_write, idle_timeout),
+            copy_with_idle_timeout(&mut server_read, &mut client_write, idle_timeout)
         )?;
     }
 
@@ -473,7 +495,61 @@ fn is_valid_hostname(s: &str) -> bool {
         && (s.contains('.') || s.contains(':'))
 }
 
-/// Copy data with metrics tracking
+/// Copy data with an idle timeout — returns an error if no bytes arrive within `idle_timeout`.
+#[inline]
+async fn copy_with_idle_timeout<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    idle_timeout: Duration,
+) -> Result<u64, io::Error>
+where
+    R: AsyncReadExt + Unpin,
+    W: AsyncWriteExt + Unpin,
+{
+    let mut buffer = [0u8; COPY_BUFFER_SIZE];
+    let mut total = 0u64;
+
+    loop {
+        let n = timeout(idle_timeout, reader.read(&mut buffer)).await??;
+        if n == 0 {
+            break;
+        }
+        writer.write_all(&buffer[..n]).await?;
+        total += n as u64;
+    }
+
+    Ok(total)
+}
+
+/// Copy data with metrics tracking and an idle timeout.
+#[inline]
+async fn copy_with_metrics_timeout<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    counter: IntCounter,
+    idle_timeout: Duration,
+) -> Result<u64, io::Error>
+where
+    R: AsyncReadExt + Unpin,
+    W: AsyncWriteExt + Unpin,
+{
+    let mut buffer = [0u8; COPY_BUFFER_SIZE];
+    let mut total = 0u64;
+
+    loop {
+        let n = timeout(idle_timeout, reader.read(&mut buffer)).await??;
+        if n == 0 {
+            break;
+        }
+        writer.write_all(&buffer[..n]).await?;
+        counter.inc_by(n as u64);
+        total += n as u64;
+    }
+
+    Ok(total)
+}
+
+/// Copy data with metrics tracking (no idle timeout — kept for internal use).
 #[inline]
 async fn copy_with_metrics<R, W>(
     reader: &mut R,
@@ -494,7 +570,6 @@ where
         }
         writer.write_all(&buffer[..n]).await?;
 
-        // Update the counter with the bytes transferred
         counter.inc_by(n as u64);
         total += n as u64;
     }
@@ -516,7 +591,7 @@ fn extract_host_header(headers: &[u8]) -> Option<String> {
     let headers_str = std::str::from_utf8(headers).ok()?;
     for line in headers_str.lines() {
         // Case-insensitive comparison without allocating lowercase string
-        if line.len() > 5 && line[..5].eq_ignore_ascii_case("host:") {
+        if line.len() >= 5 && line[..5].eq_ignore_ascii_case("host:") {
             return Some(line[5..].trim().to_string());
         }
     }

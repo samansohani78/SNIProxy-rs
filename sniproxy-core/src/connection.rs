@@ -7,7 +7,7 @@ use prometheus::{
     HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
 };
 use sniproxy_config::{Config, matches_allowlist_pattern};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpStream, lookup_host};
@@ -227,6 +227,31 @@ fn find_body_start(buffer: &[u8]) -> Option<usize> {
 }
 
 #[derive(Clone)]
+/// Returns true when `ip` is an address assigned to a local network interface.
+///
+/// Uses a zero-send UDP connect: the kernel fills in the source IP from the routing
+/// table. If the chosen source matches the target, `ip` is a local interface address.
+/// This avoids enumerating interfaces and works correctly when iptables REDIRECT
+/// sends the connection to loopback (127.0.0.1) even though the original destination
+/// is the machine's own real IP.
+fn is_own_ip(ip: IpAddr) -> bool {
+    if ip.is_loopback() {
+        return true;
+    }
+    let bind_addr: SocketAddr = match ip {
+        IpAddr::V4(_) => "0.0.0.0:0".parse().unwrap(),
+        IpAddr::V6(_) => "[::]:0".parse().unwrap(),
+    };
+    let target = SocketAddr::new(ip, 1);
+    std::net::UdpSocket::bind(bind_addr)
+        .and_then(|s| {
+            s.connect(target)?;
+            s.local_addr()
+        })
+        .map(|addr| addr.ip() == ip)
+        .unwrap_or(false)
+}
+
 pub struct ConnectionHandler {
     config: Arc<Config>,
     metrics: Option<Arc<ConnectionMetrics>>,
@@ -245,18 +270,15 @@ struct ConnectionMetrics {
 }
 
 impl ConnectionMetrics {
-    fn new(registry: &Registry) -> Self {
+    fn new(registry: &Registry) -> Result<Self, prometheus::Error> {
         let bytes_transferred = IntCounterVec::new(
             Opts::new(
                 "sniproxy_bytes_transferred_total",
                 "Total bytes transferred per host and direction",
             ),
             &["host", "direction"],
-        )
-        .unwrap();
-        registry
-            .register(Box::new(bytes_transferred.clone()))
-            .unwrap();
+        )?;
+        registry.register(Box::new(bytes_transferred.clone()))?;
 
         let connections_total = IntCounterVec::new(
             Opts::new(
@@ -264,20 +286,14 @@ impl ConnectionMetrics {
                 "Total number of connections handled",
             ),
             &["protocol", "status"],
-        )
-        .unwrap();
-        registry
-            .register(Box::new(connections_total.clone()))
-            .unwrap();
+        )?;
+        registry.register(Box::new(connections_total.clone()))?;
 
         let connections_active = IntGauge::new(
             "sniproxy_connections_active",
             "Number of currently active connections",
-        )
-        .unwrap();
-        registry
-            .register(Box::new(connections_active.clone()))
-            .unwrap();
+        )?;
+        registry.register(Box::new(connections_active.clone()))?;
 
         let connection_duration = HistogramVec::new(
             HistogramOpts::new(
@@ -288,18 +304,14 @@ impl ConnectionMetrics {
                 0.001, 0.01, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 300.0,
             ]),
             &["protocol", "host"],
-        )
-        .unwrap();
-        registry
-            .register(Box::new(connection_duration.clone()))
-            .unwrap();
+        )?;
+        registry.register(Box::new(connection_duration.clone()))?;
 
         let errors_total = IntCounterVec::new(
             Opts::new("sniproxy_errors_total", "Total number of errors by type"),
             &["error_type", "protocol"],
-        )
-        .unwrap();
-        registry.register(Box::new(errors_total.clone())).unwrap();
+        )?;
+        registry.register(Box::new(errors_total.clone()))?;
 
         let protocol_distribution = IntCounterVec::new(
             Opts::new(
@@ -307,13 +319,10 @@ impl ConnectionMetrics {
                 "Distribution of detected protocols",
             ),
             &["protocol"],
-        )
-        .unwrap();
-        registry
-            .register(Box::new(protocol_distribution.clone()))
-            .unwrap();
+        )?;
+        registry.register(Box::new(protocol_distribution.clone()))?;
 
-        Self {
+        Ok(Self {
             bytes_transferred,
             connections_total,
             connections_active,
@@ -321,13 +330,22 @@ impl ConnectionMetrics {
             errors_total,
             protocol_distribution,
             label_cache: MetricLabelCache::new(),
-        }
+        })
     }
 }
 
 impl ConnectionHandler {
     pub fn new(config: Arc<Config>, registry: Option<&Registry>) -> Self {
-        let metrics = registry.map(|r| Arc::new(ConnectionMetrics::new(r)));
+        let metrics = registry.and_then(|r| match ConnectionMetrics::new(r) {
+            Ok(m) => Some(Arc::new(m)),
+            Err(e) => {
+                warn!(
+                    "Failed to register metrics (duplicate registration?): {}",
+                    e
+                );
+                None
+            }
+        });
 
         // Initialize connection pool if configured
         let pool = if let Some(pool_config) = &config.connection_pool {
@@ -357,6 +375,21 @@ impl ConnectionHandler {
         }
     }
 
+    /// Start any background tasks (e.g. pool cleanup).
+    /// Call once from `run_proxy` after constructing the handler.
+    pub fn start_background_tasks(&self) {
+        if let (Some(ref pool), Some(ref pool_cfg)) = (&self.pool, &self.config.connection_pool) {
+            if pool_cfg.enabled {
+                let interval = Duration::from_secs(pool_cfg.cleanup_interval);
+                pool.clone().start_cleanup_task(interval);
+                info!(
+                    cleanup_interval_secs = pool_cfg.cleanup_interval,
+                    "Connection pool cleanup task started"
+                );
+            }
+        }
+    }
+
     pub async fn handle_connection(&self, mut client: TcpStream, client_addr: SocketAddr) {
         let peer = client_addr.to_string();
         let start_time = std::time::Instant::now();
@@ -375,10 +408,13 @@ impl ConnectionHandler {
         if let Some(ref metrics) = self.metrics {
             metrics.connections_active.dec();
 
-            let status = if result.is_ok() { "success" } else { "failure" };
+            let (protocol_str, status) = match &result {
+                Ok(protocol) => (protocol.as_str(), "success"),
+                Err(_) => ("unknown", "failure"),
+            };
             metrics
                 .connections_total
-                .with_label_values(&["unknown", status])
+                .with_label_values(&[protocol_str, status])
                 .inc();
         }
 
@@ -444,7 +480,7 @@ impl ConnectionHandler {
         &self,
         client: &mut TcpStream,
         addr: SocketAddr,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<Protocol, Box<dyn std::error::Error>> {
         // Peek enough bytes to identify the protocol (including HTTP/2 preface)
         let peek_buf = self.peek_bytes(client, PEEK_SIZE).await?;
         if peek_buf.is_empty() {
@@ -515,7 +551,7 @@ impl ConnectionHandler {
             }
         }
 
-        Ok(())
+        Ok(protocol)
     }
 
     /// Detects the protocol based on the first bytes of the connection
@@ -633,16 +669,34 @@ impl ConnectionHandler {
             (host.clone(), effective_protocol.default_port())
         };
 
+        let connect_timeout = Duration::from_secs(self.config.timeouts.connect);
+        let idle_timeout = Duration::from_secs(self.config.timeouts.idle);
+
         // Tunnel the connection
         match protocol {
             Protocol::WebSocket => {
-                // For WebSockets, we need to monitor the upgrade
-                http::tunnel_websocket(client, &buffer[..bytes_read], &hostname, port, metrics)
-                    .await?
+                http::tunnel_websocket(
+                    client,
+                    &buffer[..bytes_read],
+                    &hostname,
+                    port,
+                    connect_timeout,
+                    idle_timeout,
+                    metrics,
+                )
+                .await?
             }
             _ => {
-                // Standard HTTP tunneling
-                http::tunnel_http(client, &buffer[..bytes_read], &hostname, port, metrics).await?
+                http::tunnel_http(
+                    client,
+                    &buffer[..bytes_read],
+                    &hostname,
+                    port,
+                    connect_timeout,
+                    idle_timeout,
+                    metrics,
+                )
+                .await?
             }
         }
 
@@ -736,8 +790,13 @@ impl ConnectionHandler {
         let original_dst: Option<SocketAddr> = None;
 
         let target_addr = if let Some(orig_dst) = original_dst {
-            // Check for loop: if original destination is the proxy itself, skip it
-            if orig_dst.ip() == local_addr.ip() && orig_dst.port() == listen_port {
+            // Check for loop: if original destination is the proxy itself, skip it.
+            // We check is_own_ip() because iptables PREROUTING REDIRECT delivers
+            // the connection to loopback (local_addr = 127.0.0.1), making the plain
+            // IP equality check insufficient when orig_dst holds our real interface IP.
+            if orig_dst.port() == listen_port
+                && (orig_dst.ip() == local_addr.ip() || is_own_ip(orig_dst.ip()))
+            {
                 warn!(
                     listen_port = listen_port,
                     original_dst = %orig_dst,
@@ -792,6 +851,15 @@ impl ConnectionHandler {
             return Ok(());
         };
 
+        // Check allowlist if configured
+        let host_for_allowlist = target_addr.split(':').next().unwrap_or(&target_addr);
+        if let Some(ref allowlist) = self.config.allowlist
+            && !self.is_host_allowed(host_for_allowlist, allowlist)
+        {
+            warn!(host = host_for_allowlist, "SSH host not in allowlist");
+            return Ok(());
+        }
+
         // Setup metrics if enabled
         let host_for_metrics = target_addr.split(':').next().unwrap_or(&target_addr);
         let metrics = self.metrics.as_ref().map(|m| {
@@ -825,26 +893,25 @@ impl ConnectionHandler {
         client: &mut TcpStream,
         is_grpc: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // This is similar to handle_http2_cleartext but with gRPC-specific handling
-
         // Read the preface (we already peeked at it, but now we need to consume it)
-        let mut buffer = vec![0u8; HTTP2_PREFACE.len()];
-        client.read_exact(&mut buffer).await?;
+        let mut preface_buffer = vec![0u8; HTTP2_PREFACE.len()];
+        client.read_exact(&mut preface_buffer).await?;
 
-        // For gRPC, we might want to extract additional headers or do specific handling
-        let host = if is_grpc {
-            // For gRPC, try to extract the authority from headers
-            // Placeholder until we implement full HTTP/2 frame parsing
-            "grpc.service".to_string()
-        } else {
-            "default.host".to_string()
+        // Extract :authority pseudo-header from the HTTP/2 HEADERS frame
+        let (host, headers_frame) = match http::extract_http2_authority(client).await {
+            Ok((authority, frame_data)) => {
+                debug!(
+                    authority = authority,
+                    protocol = if is_grpc { "grpc" } else { "http2" },
+                    "Extracted :authority from HTTP/2 HEADERS frame"
+                );
+                (authority, frame_data)
+            }
+            Err(e) => {
+                debug!("Invalid HTTP/2 frame from client: {}", e);
+                return Ok(());
+            }
         };
-
-        debug!(
-            host,
-            protocol = if is_grpc { "grpc" } else { "http2" },
-            "Extracted host"
-        );
 
         // Check allowlist if configured
         if let Some(ref allowlist) = self.config.allowlist
@@ -858,7 +925,6 @@ impl ConnectionHandler {
         let metrics = self.metrics.as_ref().map(|m| {
             let protocol = if is_grpc { "grpc" } else { "http2" };
             let label = m.label_cache.get_or_insert(&host, protocol);
-            // Static string references for direction labels
             const TX: &str = "tx";
             const RX: &str = "rx";
             (
@@ -867,13 +933,14 @@ impl ConnectionHandler {
             )
         });
 
-        // Connect to the target server
-        let default_port = if is_grpc { 443 } else { 80 }; // gRPC typically uses TLS
+        // Connect to the target server (gRPC typically uses TLS on 443, h2c uses 80)
+        let default_port = if is_grpc { 443 } else { 80 };
         let target_addr = format!("{}:{}", host, default_port);
         let mut server = self.connect_to_server(&target_addr).await?;
 
-        // Send the HTTP/2 preface to the server
-        server.write_all(&buffer).await?;
+        // Send the HTTP/2 preface and HEADERS frame to the server
+        server.write_all(&preface_buffer).await?;
+        server.write_all(&headers_frame).await?;
 
         // Start bidirectional copy
         let idle_timeout = Duration::from_secs(self.config.timeouts.idle);
